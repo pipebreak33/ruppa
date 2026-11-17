@@ -1,0 +1,80 @@
+# Bygger Ruppa för macOS (universal), Linux (x86_64 + arm64) och Windows (x86_64 + arm64)
+# och lägger binärerna + SHA256SUMS i en GitHub-release när en tagg v* pushas.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, target: aarch64-apple-darwin, name: mac-arm }
+          - { os: macos-14, target: x86_64-apple-darwin, name: mac-x86 }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, name: ruppa-linux-x86_64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: ruppa-linux-aarch64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, name: ruppa-windows-x86_64.exe }
+          - { os: windows-latest, target: aarch64-pc-windows-msvc, name: ruppa-windows-aarch64.exe }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Linux-bibliotek för fönstret
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libwayland-dev
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Byt namn
+        shell: bash
+        run: |
+          mkdir -p out
+          src="target/${{ matrix.target }}/release/ruppa"
+          [ -f "$src.exe" ] && src="$src.exe"
+          cp "$src" "out/${{ matrix.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/${{ matrix.name }}
+
+  release:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Universal-binär för macOS + kontrollsummor
+        run: |
+          mkdir dist
+          lipo -create art/mac-arm/mac-arm art/mac-x86/mac-x86 -output dist/ruppa-macos-universal
+          chmod +x dist/ruppa-macos-universal
+          for f in art/ruppa-*/ruppa-*; do cp "$f" dist/; done
+          chmod +x dist/ruppa-linux-* || true
+          cd dist && shasum -a 256 ruppa-* > SHA256SUMS && cat SHA256SUMS
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" \
+            --title "Ruppa ${{ github.ref_name }}" --generate-notes
