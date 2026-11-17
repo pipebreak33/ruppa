@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -28,9 +28,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, target: aarch64-apple-darwin, name: mac-arm }
-          - { os: macos-14, target: x86_64-apple-darwin, name: mac-x86 }
-          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, name: ruppa-linux-x86_64 }
+          - { os: macos-latest, target: aarch64-apple-darwin, name: mac-arm }
+          - { os: macos-latest, target: x86_64-apple-darwin, name: mac-x86 }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, name: ruppa-linux-x86_64 }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: ruppa-linux-aarch64 }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, name: ruppa-windows-x86_64.exe }
           - { os: windows-latest, target: aarch64-pc-windows-msvc, name: ruppa-windows-aarch64.exe }
@@ -58,7 +58,7 @@ jobs:
 
   release:
     needs: build
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
