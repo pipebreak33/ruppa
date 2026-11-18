@@ -48,6 +48,14 @@ pub const MUPPA: Cousin = Cousin {
     art: &["██▀▄ ▄▀██", "██{e}██", "██{m}██", "██     ██", "██     ██", "▀▀     ▀▀"],
     desc: "flyttar en dator från lokal AD till Entra ID",
 };
+pub const EUPPA: Cousin = Cousin {
+    key: "euppa",
+    name: "Euppa",
+    logo: "E›",
+    shade: &[218, 212, 205, 199, 163, 126],
+    art: &["█████████", "██{e}  ", "██{m}  ", "███████  ", "██       ", "█████████"],
+    desc: "allt i Entra ID: användare, grupper, enheter, appar och roller",
+};
 /// Ruppa själv: ett R med ögon, i rost.
 pub const RUPPA: Cousin = Cousin {
     key: "ruppa",
@@ -58,7 +66,7 @@ pub const RUPPA: Cousin = Cousin {
     desc: "Wuppa i Rust: ett fönster för hela släkten",
 };
 
-pub const COUSINS: [Cousin; 3] = [UPPA, PUPPA, MUPPA];
+pub const COUSINS: [Cousin; 4] = [UPPA, PUPPA, MUPPA, EUPPA];
 
 pub fn cousin(key: &str) -> Option<Cousin> {
     COUSINS.iter().copied().find(|c| c.key.eq_ignore_ascii_case(key))
@@ -741,7 +749,7 @@ mod tests {
         s.cousins.insert("uppa", Status { current: Some("1.0.0".into()), latest: Some("1.1.0".into()) });
         s.cousins.insert("puppa", Status { current: Some("1.3.0".into()), latest: Some("1.3.0".into()) });
         assert_eq!(s.outdated(), vec![UPPA]);
-        assert_eq!(s.missing(), vec![MUPPA]);
+        assert_eq!(s.missing(), vec![MUPPA, EUPPA]);
         assert!(!s.offline());
     }
 

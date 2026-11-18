@@ -3,7 +3,7 @@
    irm https://raw.githubusercontent.com/pipebreak33/ruppa/main/uninstall.ps1 | iex
 
  Tar bort %USERPROFILE%\.ruppa (Ruppa, kusinerna och deras startare), genvägen i Startmenyn och PATH-posten.
- Behåller dina data: Puppas tenants (.puppa), Muppas mallar (.muppa), Uppas cache (.uppa) och skapade skript
+ Behåller dina data: Puppas tenants (.puppa), Muppas mallar (.muppa), Euppas tenants (.euppa), Uppas cache (.uppa) och skapade skript
  i Dokument. $env:RUPPA_YES = '1' hoppar över frågan. $env:RUPPA_HOME om Ruppa installerades någon annanstans.
 #>
 $ErrorActionPreference = 'Stop'
@@ -29,7 +29,7 @@ if (-not $found) { Say 'Ruppa är inte installerad här. Inget att ta bort.'; re
 
 Write-Host "`n  Det här tas bort:"
 $found | ForEach-Object { Write-Host $_ }
-Write-Host "  Dina data i .puppa, .muppa, .uppa och Dokument behålls.`n"
+Write-Host "  Dina data i .puppa, .muppa, .euppa, .uppa och Dokument behålls.`n"
 if ($env:RUPPA_YES -ne '1') {
     $svar = Read-Host '  Avinstallera Ruppa? [j/N]'
     if ($svar -notmatch '^(j|ja|y|yes)$') { Say 'Avbrutet. Ingenting har tagits bort.'; return }

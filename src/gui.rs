@@ -2,6 +2,7 @@
 //! Allt som tar tid (skanning, installers, self-update) körs i bakgrundstrådar så att fönstret aldrig fryser.
 
 use crate::core::{self, COUSINS, Cousin, RUPPA, Scan, VERSION};
+use crate::euppa_page::EuppaPage;
 use crate::pages::{Action, MuppaPage, PuppaPage, UppaPage};
 use crate::termview::{self, Session};
 use eframe::egui::{
@@ -80,6 +81,7 @@ pub struct App {
     uppa: UppaPage,
     puppa: PuppaPage,
     muppa: MuppaPage,
+    euppa: EuppaPage,
 }
 
 impl App {
@@ -111,6 +113,7 @@ impl App {
             uppa: UppaPage::default(),
             puppa: PuppaPage::default(),
             muppa: MuppaPage::default(),
+            euppa: EuppaPage::default(),
         };
         app.rescan(&ctx);
         app
@@ -221,6 +224,7 @@ impl App {
                         match k.key {
                             "uppa" => self.uppa.reset(),
                             "puppa" => self.puppa.reset(),
+                            "euppa" => self.euppa.reset(),
                             _ => self.muppa.reset(),
                         }
                     }
@@ -415,8 +419,8 @@ impl App {
                     }
                 }
                 if !missing.is_empty() {
-                    let label = if missing.len() == 3 {
-                        "Installera alla tre".to_string()
+                    let label = if missing.len() == COUSINS.len() {
+                        "Installera alla".to_string()
                     } else {
                         format!("Installera {}", names(&missing))
                     };
@@ -513,11 +517,11 @@ impl App {
         self.focus_term = true;
     }
 
-    /// ⌘1–4 (Ctrl på Windows/Linux) väljer flik, ⌘[ och ⌘] bläddrar.
+    /// ⌘1–5 (Ctrl på Windows/Linux) väljer flik, ⌘[ och ⌘] bläddrar.
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let order: Vec<Option<&'static str>> =
             std::iter::once(None).chain(COUSINS.iter().map(|c| Some(c.key))).collect();
-        let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4];
+        let keys = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5];
         let mut pick = None;
         ctx.input_mut(|i| {
             for (n, k) in keys.iter().enumerate() {
@@ -700,6 +704,7 @@ impl App {
         let act = match key {
             "uppa" => self.uppa.ui(ui, ctx),
             "puppa" => self.puppa.ui(ui, ctx),
+            "euppa" => self.euppa.ui(ui, ctx),
             _ => self.muppa.ui(ui, ctx),
         };
         match act {
@@ -948,9 +953,9 @@ impl eframe::App for App {
                     self.toolbar(ui, &ctx);
                     ui.add_space(10.0);
                     let avail = ui.available_width();
-                    // responsivt: tre kort i rad när det får plats, annars under varandra
-                    let cols = if avail >= 900.0 {
-                        3
+                    // responsivt: alla fyra i rad när det får plats, annars 2×2, smalt under varandra
+                    let cols = if avail >= 1250.0 {
+                        4
                     } else if avail >= 620.0 {
                         2
                     } else {

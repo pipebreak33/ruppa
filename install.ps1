@@ -3,8 +3,8 @@
    irm https://raw.githubusercontent.com/pipebreak33/ruppa/main/install.ps1 | iex
 
  Allt hamnar i %USERPROFILE%\.ruppa:
-   bin\ruppa.exe                 programmet (plus uppa.cmd, puppa.cmd, muppa.cmd)
-   uppa, puppa, muppa            kusinerna
+   bin\ruppa.exe                 programmet (plus uppa.cmd, puppa.cmd, muppa.cmd, euppa.cmd)
+   uppa, puppa, muppa, euppa     kusinerna
  Dessutom en genväg i Startmenyn. Inga adminrättigheter behövs.
 
  $env:RUPPA_REPO = 'ägare/repo' och $env:RUPPA_VERSION = 'v1.2.3' styr källan.
@@ -83,12 +83,12 @@ $s = $sh.CreateShortcut($lnk)
 $s.TargetPath = $target
 $s.Arguments = 'gui'
 $s.WorkingDirectory = $HOME
-$s.Description = 'Uppa, Puppa och Muppa i ett fönster'
+$s.Description = 'Uppa, Puppa, Muppa och Euppa i ett fönster'
 if (Test-Path $icon) { $s.IconLocation = "$icon,0" } else { $s.IconLocation = "$target,0" }
 $s.Save()
 Say 'Ruppa finns i Startmenyn'
 
-# 4. bin i användarens PATH (för uppa, puppa och muppa i terminalen)
+# 4. bin i användarens PATH (för uppa, puppa, muppa och euppa i terminalen)
 $user = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $user) { $user = '' }
 if (($user -split ';') -notcontains $Bin) {

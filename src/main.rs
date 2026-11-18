@@ -1,10 +1,10 @@
-//! Ruppa – Wuppa i Rust. Ett fönster (och en CLI) för hela släkten: Uppa, Puppa och Muppa.
+//! Ruppa – Wuppa i Rust. Ett fönster (och en CLI) för hela släkten: Uppa, Puppa, Muppa och Euppa.
 //!
 //!   ruppa                     fönstret (TUI-meny i terminalen när inget fönster går att öppna)
 //!   ruppa status              vilka kusiner som finns och om de kan uppdateras
 //!   ruppa install [namn …]    installera kusiner som saknas
 //!   ruppa update [namn …]     uppdatera det som har en nyare version, och Ruppa själv
-//!   ruppa uppa|puppa|muppa …  kör en kusin, allt efter namnet skickas vidare
+//!   ruppa uppa|puppa|muppa|euppa …  kör en kusin, allt efter namnet skickas vidare
 //!   ruppa self-update         uppdatera bara Ruppa
 //!   ruppa uninstall [-y]      ta bort Ruppa och kusinerna (dina data behålls)
 
@@ -13,6 +13,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod core;
+mod euppa_page;
 mod fuzzy;
 mod gui;
 mod pages;
@@ -38,7 +39,7 @@ const JOKES: [&str; 6] = [
 ];
 
 #[derive(Parser)]
-#[command(name = "ruppa", version, about = "Ruppa – Wuppa i Rust: Uppa, Puppa och Muppa i ett fönster")]
+#[command(name = "ruppa", version, about = "Ruppa – Wuppa i Rust: Uppa, Puppa, Muppa och Euppa i ett fönster")]
 struct Cli {
     /// inga animationer (stängs också av av NO_COLOR och när utdata pipas)
     #[arg(long, global = true)]
@@ -67,7 +68,7 @@ enum Cmd {
         #[arg(short = 'n', long)]
         dry_run: bool,
     },
-    /// ta bort Ruppa och kusinerna (dina data i ~/.puppa, ~/.muppa och ~/Documents behålls)
+    /// ta bort Ruppa och kusinerna (dina data i ~/.puppa, ~/.muppa, ~/.euppa och ~/Documents behålls)
     Uninstall {
         /// fråga inte
         #[arg(short, long)]
@@ -141,7 +142,7 @@ fn pick(names: &[String]) -> Result<Vec<Cousin>, i32> {
             Some(c) if !out.contains(&c) => out.push(c),
             Some(_) => {}
             None => {
-                eprintln!("  okänd kusin: {n} (välj bland uppa, puppa, muppa)");
+                eprintln!("  okänd kusin: {n} (välj bland uppa, puppa, muppa, euppa)");
                 return Err(2);
             }
         }
@@ -214,7 +215,7 @@ fn cmd_install(names: &[String]) -> i32 {
     let s = scan_with_spinner("Kollar vilka kusiner som redan bor här…");
     let targets: Vec<Cousin> = if chosen.is_empty() { s.missing() } else { chosen };
     if targets.is_empty() {
-        say("Alla tre kusinerna är redan installerade. Vill du uppdatera dem: ruppa update", Mood::Proud);
+        say("Alla kusinerna är redan installerade. Vill du uppdatera dem: ruppa update", Mood::Proud);
         return 0;
     }
     let failed = do_install(&targets, "Installerar");
@@ -322,7 +323,7 @@ pub fn greeting(s: &core::Scan, joke: Option<usize>) -> (String, Mood) {
     }
     if missing.len() == COUSINS.len() {
         return (
-            "Hej! Jag är Ruppa. Jag håller ihop kusinerna Uppa, Puppa och Muppa, men ingen av dem bor här än. \
+            "Hej! Jag är Ruppa. Jag håller ihop kusinerna Uppa, Puppa, Muppa och Euppa, men ingen av dem bor här än. \
              Ska vi hämta hem dem?"
                 .into(),
             Mood::Wow,
@@ -340,7 +341,7 @@ pub fn greeting(s: &core::Scan, joke: Option<usize>) -> (String, Mood) {
         return (format!("Hej! Jag är Ruppa. Det finns nytt för {}. Ska vi ruppa?", core::join_names(&old)), Mood::Wow);
     }
     let joke = joke.map(|i| format!(" {}", JOKES[i % JOKES.len()])).unwrap_or_default();
-    (format!("Hej! Jag är Ruppa. Alla tre kusinerna är hemma och fräscha.{joke}"), Mood::Happy)
+    (format!("Hej! Jag är Ruppa. Alla kusinerna är hemma och fräscha.{joke}"), Mood::Happy)
 }
 
 /// Ett slumpat skämtnummer (en gång per skanning).
@@ -371,8 +372,8 @@ fn menu() -> i32 {
             rows.push(term::item("Uppdatera allt", format!("{n_new} kan uppdateras"), "update", Some('u')));
         }
         if !missing.is_empty() {
-            let label = if missing.len() == 3 {
-                "Installera alla tre".into()
+            let label = if missing.len() == COUSINS.len() {
+                "Installera alla".into()
             } else {
                 format!("Installera {}", names_of(&missing))
             };

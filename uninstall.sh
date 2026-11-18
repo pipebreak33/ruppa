@@ -3,7 +3,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/uninstall.sh | sh
 #
 # Tar bort ~/.ruppa (Ruppa, kusinerna och deras startare), Ruppa.app / programmenyposten och PATH-raden.
-# Behåller dina data: Puppas tenants (~/.puppa), Muppas mallar (~/.muppa), Uppas cache (~/.uppa)
+# Behåller dina data: Puppas tenants (~/.puppa), Muppas mallar (~/.muppa), Euppas tenants (~/.euppa), Uppas cache (~/.uppa)
 # och skapade skript (~/Documents/Muppa, ~/Documents/Puppa).
 # RUPPA_YES=1 hoppar över frågan. RUPPA_HOME om Ruppa installerades någon annanstans.
 set -eu
@@ -36,7 +36,7 @@ fi
 
 printf '\n  Det här tas bort:'
 printf "$FOUND\n"
-printf '  Dina data i ~/.puppa, ~/.muppa, ~/.uppa och ~/Documents behålls.\n\n'
+printf '  Dina data i ~/.puppa, ~/.muppa, ~/.euppa, ~/.uppa och ~/Documents behålls.\n\n'
 if [ "${RUPPA_YES:-}" != "1" ]; then
   if [ -r /dev/tty ]; then
     printf '  Avinstallera Ruppa? [j/N] '

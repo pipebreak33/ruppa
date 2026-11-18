@@ -3,8 +3,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/install.sh | sh
 #
 # Allt hamnar i ~/.ruppa:
-#   ~/.ruppa/bin/ruppa            programmet (plus uppa, puppa, muppa)
-#   ~/.ruppa/uppa, puppa, muppa   kusinerna
+#   ~/.ruppa/bin/ruppa            programmet (plus uppa, puppa, muppa, euppa)
+#   ~/.ruppa/uppa, puppa, muppa, euppa   kusinerna
 #   ~/.ruppa/share/               ikonen
 # Dessutom en startare så att Ruppa syns bland programmen:
 #   macOS: ~/Applications/Ruppa.app     Linux: ~/.local/share/applications/ruppa.desktop
@@ -108,7 +108,7 @@ else
 [Desktop Entry]
 Type=Application
 Name=Ruppa
-Comment=Uppa, Puppa och Muppa i ett fönster
+Comment=Uppa, Puppa, Muppa och Euppa i ett fönster
 Exec=$BIN/ruppa gui
 Icon=$SHARE/ruppa.png
 Terminal=false
@@ -117,7 +117,7 @@ EOF
   say "Ruppa finns bland dina program"
 fi
 
-# 4. ~/.ruppa/bin i PATH (för uppa, puppa och muppa i terminalen)
+# 4. ~/.ruppa/bin i PATH (för uppa, puppa, muppa och euppa i terminalen)
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *)
