@@ -7,6 +7,7 @@
 //!   ruppa uppa|puppa|muppa|euppa …  kör en kusin, allt efter namnet skickas vidare
 //!   ruppa self-update         uppdatera bara Ruppa
 //!   ruppa uninstall [-y]      ta bort Ruppa och kusinerna (dina data behålls)
+//!   ruppa uninstall puppa …   ta bara bort de här kusinerna ur Ruppa
 
 // Windows: en fönsterapp (inget konsolfönster blinkar till från Startmenyn). CLI-kommandona kopplar sig till
 // terminalen de startas från, se attach_console().
@@ -68,8 +69,11 @@ enum Cmd {
         #[arg(short = 'n', long)]
         dry_run: bool,
     },
-    /// ta bort Ruppa och kusinerna (dina data i ~/.puppa, ~/.muppa, ~/.euppa och ~/Documents behålls)
+    /// ta bort Ruppa och kusinerna, eller bara de kusiner du nämner (dina data i ~/.puppa, ~/.muppa, ~/.euppa och
+    /// ~/Documents behålls)
     Uninstall {
+        /// bara de här kusinerna (uppa, puppa, muppa, euppa); utan namn: hela Ruppa
+        names: Vec<String>,
         /// fråga inte
         #[arg(short, long)]
         yes: bool,
@@ -114,7 +118,7 @@ fn main() -> ExitCode {
         Some(Cmd::Install { names }) => cmd_install(&names),
         Some(Cmd::Update { names, force }) => cmd_update(&names, force),
         Some(Cmd::SelfUpdate { dry_run }) => cmd_self_update(dry_run),
-        Some(Cmd::Uninstall { yes }) => cmd_uninstall(yes),
+        Some(Cmd::Uninstall { names, yes }) => cmd_uninstall(&names, yes),
     };
     code(rc)
 }
@@ -271,32 +275,63 @@ fn cmd_self_update(dry_run: bool) -> i32 {
     }
 }
 
-/// Kör avinstallationsskriptet (samma som uninstall.sh / uninstall.ps1 i repot, inbakat i programmet).
-fn cmd_uninstall(yes: bool) -> i32 {
-    let (name, text) = if cfg!(windows) {
-        ("ruppa-uninstall.ps1", include_str!("../uninstall.ps1"))
-    } else {
-        ("ruppa-uninstall.sh", include_str!("../uninstall.sh"))
-    };
-    let path = std::env::temp_dir().join(name);
-    if let Err(e) = std::fs::write(&path, text) {
-        eprintln!("  {} kunde inte skriva {}: {e}", red("✘"), path.display());
-        return 1;
+/// Avinstallera: utan namn hela Ruppa (avinstallationsskriptet), med namn bara de kusinerna ur ~/.ruppa.
+fn cmd_uninstall(names: &[String], yes: bool) -> i32 {
+    if names.is_empty() {
+        let mut cmd = match core::uninstall_script(yes) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("  {} {e}", red("✘"));
+                return 1;
+            }
+        };
+        return cmd.status().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
     }
-    let mut cmd = if cfg!(windows) {
-        let mut c = std::process::Command::new("powershell");
-        c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]).arg(&path);
-        c
-    } else {
-        let mut c = std::process::Command::new("sh");
-        c.arg(&path);
-        c
-    };
-    if yes {
-        cmd.env("RUPPA_YES", "1");
+    let mut chosen: Vec<Cousin> = Vec::new();
+    for n in names {
+        match core::cousin(n) {
+            Some(c) if !chosen.contains(&c) => chosen.push(c),
+            Some(_) => {}
+            None => {
+                eprintln!("  okänd kusin: {n} (välj bland uppa, puppa, muppa, euppa)");
+                return 2;
+            }
+        }
     }
-    let rc = cmd.status().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
-    let _ = std::fs::remove_file(&path);
+    let installed: Vec<Cousin> = chosen.iter().copied().filter(|c| core::cousin_exe(c.key).is_some()).collect();
+    if installed.is_empty() {
+        say("Ingen av dem är installerad i Ruppa. Inget att ta bort.", Mood::Happy);
+        return 0;
+    }
+    let list = names_of(&installed);
+    if !yes {
+        if !std::io::stdin().is_terminal() {
+            eprintln!("  Ingen terminal att fråga i. Kör med -y för att avinstallera utan fråga.");
+            return 1;
+        }
+        say(&format!("Avinstallera {list} ur Ruppa? Deras data (tenants, mallar, rapporter) behålls."), Mood::Worry);
+        print!("  Avinstallera? [j/N] ");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let mut s = String::new();
+        let _ = std::io::stdin().read_line(&mut s);
+        if !matches!(s.trim().to_lowercase().as_str(), "j" | "ja" | "y" | "yes") {
+            say("Okej, inget borttaget.", Mood::Happy);
+            return 0;
+        }
+    }
+    let mut rc = 0;
+    for c in &installed {
+        match core::uninstall_cousin(c.key) {
+            Ok(()) => println!("  {} {} avinstallerad", term::green("✔"), c.name),
+            Err(e) => {
+                eprintln!("  {} {e}", red("✘"));
+                rc = 1;
+            }
+        }
+    }
+    if rc == 0 {
+        say(&format!("Klart! {list} är borta ur Ruppa. Installera igen: ruppa install"), Mood::Proud);
+    }
     rc
 }
 

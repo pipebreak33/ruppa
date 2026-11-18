@@ -62,9 +62,12 @@ irm https://raw.githubusercontent.com/pipebreak33/ruppa/main/uninstall.ps1 | iex
 curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/uninstall.sh | sh
 ```
 
-Eller `ruppa uninstall` (`-y` för att slippa frågan). Det tar bort `~/.ruppa`, Ruppa.app / genvägen i Startmenyn /
+Eller `ruppa uninstall` (`-y` för att slippa frågan), eller *Avinstallera Ruppa…* i översikten. Det tar bort `~/.ruppa`, Ruppa.app / genvägen i Startmenyn /
 programmenyposten och PATH-raden (en kopia av skalfilen sparas som `.ruppa.bak`). Dina data behålls: Puppas tenants
 (`~/.puppa`), Muppas mallar (`~/.muppa`), Euppas tenants (`~/.euppa`), Uppas cache (`~/.uppa`) och skript du skapat i `~/Documents`.
+
+En enskild kusin tar du bort med *Avinstallera* på dess kort i översikten, eller `ruppa uninstall puppa euppa`.
+Det tar bort kusinen ur `~/.ruppa`, men dess data finns kvar om du installerar den igen.
 
 ## Det här kan du göra
 

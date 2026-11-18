@@ -82,6 +82,8 @@ pub struct App {
     puppa: PuppaPage,
     muppa: MuppaPage,
     euppa: EuppaPage,
+    /// väntar på bekräftelse att avinstallera: en kusin, eller "ruppa" = hela Ruppa
+    ask_uninstall: Option<&'static str>,
 }
 
 impl App {
@@ -114,6 +116,7 @@ impl App {
             puppa: PuppaPage::default(),
             muppa: MuppaPage::default(),
             euppa: EuppaPage::default(),
+            ask_uninstall: None,
         };
         app.rescan(&ctx);
         app
@@ -439,6 +442,17 @@ impl App {
             if theme::secondary(ui, idle, &self_label).clicked() {
                 self.self_update(ctx);
             }
+            if self.ask_uninstall == Some("ruppa") {
+                ui.label(RichText::new("Ta bort Ruppa och alla kusiner? Dina data behålls.").color(YELLOW));
+                if theme::primary(ui, idle, "Ja, avinstallera allt", RED.gamma_multiply(0.8)) {
+                    self.uninstall_all(ctx);
+                }
+                if theme::secondary(ui, true, "Avbryt").clicked() {
+                    self.ask_uninstall = None;
+                }
+            } else if theme::ghost(ui, "Avinstallera Ruppa…") && idle {
+                self.ask_uninstall = Some("ruppa");
+            }
             if let Some(v) = self.restart_to.clone()
                 && theme::primary(ui, true, &format!("Starta om som {v}"), theme::ACCENT)
             {
@@ -491,6 +505,18 @@ impl App {
                 });
             });
             ui.add_space(4.0);
+            if self.ask_uninstall == Some(k.key) {
+                ui.label(RichText::new(format!("Ta bort {} ur Ruppa? Dina data behålls.", k.name)).color(YELLOW));
+                ui.horizontal(|ui| {
+                    if theme::primary(ui, idle, "Ja, avinstallera", RED.gamma_multiply(0.8)) {
+                        self.uninstall(ctx, k);
+                    }
+                    if theme::secondary(ui, true, "Avbryt").clicked() {
+                        self.ask_uninstall = None;
+                    }
+                });
+                return;
+            }
             ui.horizontal(|ui| match &st {
                 Some(s) if s.installed() => {
                     if theme::primary(ui, true, &format!("  Öppna {}  ", k.name), accent.gamma_multiply(0.75)) {
@@ -499,6 +525,9 @@ impl App {
                     let label = if s.outdated() { "Uppdatera" } else { "Installera om" };
                     if theme::secondary(ui, idle, label).clicked() {
                         self.run_installers(ctx, vec![k], "Uppdaterar");
+                    }
+                    if theme::ghost(ui, "Avinstallera") && idle {
+                        self.ask_uninstall = Some(k.key);
                     }
                 }
                 Some(_) => {
@@ -510,6 +539,63 @@ impl App {
                 None => {}
             });
         });
+    }
+
+    fn reset_page(&mut self, key: &str) {
+        match key {
+            "uppa" => self.uppa.reset(),
+            "puppa" => self.puppa.reset(),
+            "euppa" => self.euppa.reset(),
+            _ => self.muppa.reset(),
+        }
+    }
+
+    /// Ta bort en kusin ur ~/.ruppa (dess data behålls) och skanna om.
+    fn uninstall(&mut self, ctx: &egui::Context, k: Cousin) {
+        self.ask_uninstall = None;
+        self.sessions.remove(k.key);
+        self.term_mode.remove(k.key);
+        match core::uninstall_cousin(k.key) {
+            Ok(()) => {
+                self.log.push(format!("✔ {} avinstallerad ur Ruppa", k.name));
+                self.say = Some((
+                    format!("{} är avinstallerad. Dina data finns kvar om du installerar igen.", k.name),
+                    self.now,
+                ));
+            }
+            Err(e) => {
+                self.log.push(format!("✘ {e}"));
+                self.say = Some((format!("Det gick inte att avinstallera {}: {e}", k.name), self.now));
+                self.face = (Face::Sad, self.now);
+            }
+        }
+        self.reset_page(k.key);
+        if self.tab == Some(k.key) {
+            self.tab = None;
+        }
+        self.rescan(ctx);
+    }
+
+    /// Hela Ruppa: kör avinstallationsskriptet i bakgrunden och stäng fönstret (skriptet tar bort programmet).
+    fn uninstall_all(&mut self, ctx: &egui::Context) {
+        self.ask_uninstall = None;
+        match core::uninstall_script(true) {
+            Ok(mut cmd) => {
+                cmd.stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x0800_0000);
+                }
+                match cmd.spawn() {
+                    Ok(_) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    Err(e) => self.say = Some((format!("Kunde inte avinstallera: {e}"), self.now)),
+                }
+            }
+            Err(e) => self.say = Some((format!("Kunde inte avinstallera: {e}"), self.now)),
+        }
     }
 
     fn select(&mut self, tab: Option<&'static str>) {

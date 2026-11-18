@@ -578,6 +578,50 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
     Ok(ver)
 }
 
+/// Avinstallera en kusin ur ~/.ruppa: koden (~/.ruppa/<kusin>) och startaren i ~/.ruppa/bin.
+/// Kusinens egna data (t.ex. ~/.puppa, ~/.euppa, rapporter i ~/Documents) rörs inte.
+pub fn uninstall_cousin(name: &str) -> Result<(), String> {
+    if cousin(name).is_none() {
+        return Err(format!("okänd kusin: {name}"));
+    }
+    let (dir, shim) = (cousin_dir(name), shim_path(name));
+    if !dir.exists() && !shim.exists() {
+        return Err(format!("{name} är inte installerad i Ruppa"));
+    }
+    if shim.exists() {
+        std::fs::remove_file(&shim).map_err(|e| format!("kunde inte ta bort {}: {e}", shim.display()))?;
+    }
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| format!("kunde inte ta bort {}: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Avinstallationsskriptet för hela Ruppa (samma som uninstall.sh / uninstall.ps1 i repot, inbakat i programmet),
+/// skrivet till en temporär fil. -> ett Command som kör det.
+pub fn uninstall_script(yes: bool) -> Result<Command, String> {
+    let (name, text) = if cfg!(windows) {
+        ("ruppa-uninstall.ps1", include_str!("../uninstall.ps1"))
+    } else {
+        ("ruppa-uninstall.sh", include_str!("../uninstall.sh"))
+    };
+    let path = std::env::temp_dir().join(name);
+    std::fs::write(&path, text).map_err(|e| format!("kunde inte skriva {}: {e}", path.display()))?;
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("powershell");
+        c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]).arg(&path);
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg(&path);
+        c
+    };
+    if yes {
+        cmd.env("RUPPA_YES", "1");
+    }
+    Ok(cmd)
+}
+
 /// Läs konstanter direkt ur en installerad kusin (t.ex. Muppas FOLDERS eller Puppas CAT_HINTS) som JSON.
 /// Så är Ruppa bara ett skal: när kusinen uppdateras får sidorna de nya valen utan en ny Ruppa.
 /// Modulen laddas utan att köras (main körs bara när filen startas som program).
