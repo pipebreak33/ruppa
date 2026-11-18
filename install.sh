@@ -12,6 +12,7 @@
 # RUPPA_REPO=ägare/repo och RUPPA_VERSION=v1.2.3 styr källan. RUPPA_BINARY=/sökväg/ruppa installerar en lokal binär.
 # RUPPA_HOME flyttar mappen.
 set -eu
+START="$(date +%s)"
 
 REPO="${RUPPA_REPO:-pipebreak33/ruppa}"
 DIR="${RUPPA_HOME:-$HOME/.ruppa}"
@@ -135,5 +136,8 @@ esac
 printf '\n'
 "$BIN/ruppa" install --no-anim || warn "Någon kusin gick inte att installera. Öppna Ruppa och försök igen."
 
-printf '\n  \033[38;5;42m✔\033[0m Klart! Öppna \033[1mRuppa\033[0m bland dina program.\n\n'
+SECS=$(( $(date +%s) - START ))
+if [ "$SECS" -ge 60 ]; then TOOK="$((SECS / 60)) min $((SECS % 60)) s"; else TOOK="$SECS s"; fi
+printf '\n  \033[38;5;42m✔\033[0m Klart på %s! Öppna \033[1mRuppa\033[0m bland dina program.\n' "$TOOK"
+printf '  \033[2mAvinstallera: curl -fsSL https://raw.githubusercontent.com/%s/main/uninstall.sh | sh\033[0m\n\n' "$REPO"
 if [ "$OS" = Darwin ] && [ -z "${RUPPA_NO_OPEN:-}" ]; then open "$HOME/Applications/Ruppa.app" 2>/dev/null || true; fi

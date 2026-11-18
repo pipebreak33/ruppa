@@ -570,6 +570,32 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
     Ok(ver)
 }
 
+/// Läs konstanter direkt ur en installerad kusin (t.ex. Muppas FOLDERS eller Puppas CAT_HINTS) som JSON.
+/// Så är Ruppa bara ett skal: när kusinen uppdateras får sidorna de nya valen utan en ny Ruppa.
+/// Modulen laddas utan att köras (main körs bara när filen startas som program).
+pub fn describe(name: &str, keys: &[&str]) -> Option<serde_json::Value> {
+    const PY: &str = "import importlib.util,json,sys,io,contextlib\n\
+spec=importlib.util.spec_from_file_location('kusin',sys.argv[1])\n\
+m=importlib.util.module_from_spec(spec)\n\
+with contextlib.redirect_stdout(io.StringIO()): spec.loader.exec_module(m)\n\
+print(json.dumps({k:getattr(m,k,None) for k in sys.argv[2].split(',')},ensure_ascii=False,default=list))";
+    let script = cousin_dir(name).join(format!("{name}.py"));
+    if !script.exists() {
+        return None;
+    }
+    let py = find_python()?;
+    let mut cmd = Command::new(&py[0]);
+    cmd.args(&py[1..]).arg("-c").arg(PY).arg(&script).arg(keys.join(",")).env("PYTHONIOENCODING", "utf-8");
+    cmd.stdin(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let out = cmd.output().ok().filter(|o| o.status.success())?;
+    serde_json::from_slice(&out.stdout).ok()
+}
+
 pub fn strip_ansi(s: &str) -> String {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07").unwrap()).replace_all(s, "").into_owned()

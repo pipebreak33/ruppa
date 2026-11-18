@@ -9,6 +9,10 @@
 [Muppa](https://github.com/pipebreak33/muppa) i ett fönster, med knappar, listor och formulär i stället för kommandon.
 Installera Ruppa så får du alla tre. Allt hamnar i en mapp: `~/.ruppa`.
 
+Ruppa är bara ett skal. Skripten, områdena, formulärets val och grundpaketen läses direkt ur kusinerna, så när du
+uppdaterar Puppa (knappen *Uppdatera Puppa* överst på sidan) dyker nya skript och områden upp i Ruppa direkt, utan
+någon ny Ruppa-version.
+
 <p align="center">
   <img src="assets/screens/over.png" alt="Översikten" width="860">
 </p>
@@ -28,20 +32,38 @@ curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/install.sh |
 ```
 
 Installern hämtar rätt binär för datorn från den senaste releasen, kontrollerar SHA-256, och installerar sedan
-kusinerna. Ruppa dyker upp bland dina program med R-ikonen: `~/Applications/Ruppa.app` på macOS, Startmenyn på
+kusinerna. Sist visar den hur lång tid det tog (oftast några sekunder). Ruppa dyker upp bland dina program med R-ikonen: `~/Applications/Ruppa.app` på macOS, Startmenyn på
 Windows och programmenyn på Linux. Inga adminrättigheter behövs.
 
 ```
 ~/.ruppa/
   bin/      ruppa + startare för uppa, puppa och muppa (ligger i PATH)
   uppa/     Uppa
-  puppa/    Puppa (med recepten)
+  puppa/    Puppa (med skripten)
   muppa/    Muppa
   share/    ikonen
 ```
 
 Kusinerna är Python-program. Saknas Python 3.8+ installerar Ruppa det per användare med winget på Windows. På macOS
 räcker `xcode-select --install`.
+
+## Avinstallera
+
+**Windows:**
+
+```powershell
+irm https://raw.githubusercontent.com/pipebreak33/ruppa/main/uninstall.ps1 | iex
+```
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/uninstall.sh | sh
+```
+
+Eller `ruppa uninstall` (`-y` för att slippa frågan). Det tar bort `~/.ruppa`, Ruppa.app / genvägen i Startmenyn /
+programmenyposten och PATH-raden (en kopia av skalfilen sparas som `.ruppa.bak`). Dina data behålls: Puppas tenants
+(`~/.puppa`), Muppas mallar (`~/.muppa`), Uppas cache (`~/.uppa`) och skript du skapat i `~/Documents`.
 
 ## Det här kan du göra
 
@@ -51,15 +73,21 @@ Växla mellan sidorna i menyn till vänster, eller med **⌘1–⌘4** (Ctrl+1�
 |---|---|
 | **Översikt** | Ruppa säger hej och berättar vad som saknas eller kan uppdateras. Installera, uppdatera eller öppna varje kusin med en knapp. |
 | **Uppa** | Allt som kan uppdateras, grupperat per källa (Homebrew/winget, PowerShell-moduler, az, npm, .NET). Kryssa och klicka *Uppdatera valda*. Grundpaket (Bas, M365, Azure, Alla), *Logga ut från allt*, hälsokoll och städning. |
-| **Puppa** | Välj tenant, sök bland recepten, fyll i fälten och klicka *Kör recept*. Resultatet visas som en tabell och sparas som CSV. Recept som ändrar något är orange och kräver att du bekräftar. |
+| **Puppa · Användare** | Växla till *Användare*: alla användare i tenanten med fuzzy-sök (namn, e-post, titel, avdelning). Kryssa en eller flera och välj vad du vill göra med dem: lägg till i grupp eller team, spärra, visa MFA, inloggningar, enheter … Skript som tar en användare körs en gång per person. Fält som grupp eller team har en *Sök*-knapp som söker i tenanten. |
+| **Puppa** | Välj tenant och ett område (SharePoint, Exchange, Teams …), eller sök. Klicka på ett skript, fyll i fälten och klicka *Kör skript*. Resultatet visas som en tabell och sparas som CSV. Skript som ändrar något är orange och kräver att du bekräftar. Senast använda skript ligger överst. |
 | **Muppa** | Migreringsguiden som ett formulär: användare, mappar (chips), BitLocker, domän, webbläsare, lokalt admin-konto. *Skapa skript och checklista*, och checklistan visas direkt. |
 
 <p align="center">
-  <img src="assets/screens/puppa.png" alt="Puppa i Ruppa" width="430">
+  <img src="assets/screens/puppa.png" alt="Puppa: områden" width="430">
+  <img src="assets/screens/puppa-skript.png" alt="Puppa: skript och detaljpanel" width="430">
+</p>
+<p align="center">
+  <img src="assets/screens/puppa-anvandare.png" alt="Puppa: välj användare och gör något med dem" width="430">
   <img src="assets/screens/muppa.png" alt="Muppa i Ruppa" width="430">
 </p>
 
-Behöver du terminalversionen av en kusin, till exempel för ett recept som frågar något, finns *Öppna i terminal*. Då
+Varje kusinsida har *Uppdatera Uppa/Puppa/Muppa* överst. Behöver du terminalversionen av en kusin, till exempel för ett
+skript som frågar något, finns *Öppna i terminal*. Då
 körs kusinen i en inbyggd terminal i fönstret. Den fortsätter köra när du byter sida, och *Tillbaka till appen* tar
 dig tillbaka.
 
@@ -73,12 +101,13 @@ dig tillbaka.
   den nya har klarat en syntaxkontroll. `~/.wuppa/config.json` delas med Wuppa (`repos`, `local`), och
   `UPPA_REPO`/`PUPPA_BRANCH` osv. fungerar som vanligt.
 - Sidorna anropar kusinernas egna kommandon (`uppa update`, `puppa kör`, `muppa skapa`) och läser deras data direkt
-  (Uppas cache, Puppas recept och tenants).
+  (Uppas cache, Puppas skript och tenants). Konstanter som Muppas val, Puppas områden och Uppas grundpaket läses ur
+  den installerade kusinen med Python (`core::describe`), så Ruppa behöver aldrig uppdateras för att följa med.
 - Den inbyggda terminalen: `portable-pty` (ConPTY på Windows) + `vt100`.
 - Self-update från GitHub Releases med SHA-256-kontroll.
 
 Ruppa har också ett litet kommandoradsgränssnitt för skript: `ruppa status`, `ruppa install`, `ruppa update`,
-`ruppa uppa|puppa|muppa …` och `ruppa self-update`.
+`ruppa uppa|puppa|muppa …`, `ruppa self-update` och `ruppa uninstall`.
 
 ### Bygga själv
 

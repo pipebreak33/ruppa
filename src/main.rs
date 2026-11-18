@@ -6,18 +6,21 @@
 //!   ruppa update [namn …]     uppdatera det som har en nyare version, och Ruppa själv
 //!   ruppa uppa|puppa|muppa …  kör en kusin, allt efter namnet skickas vidare
 //!   ruppa self-update         uppdatera bara Ruppa
+//!   ruppa uninstall [-y]      ta bort Ruppa och kusinerna (dina data behålls)
 
 // Windows: en fönsterapp (inget konsolfönster blinkar till från Startmenyn). CLI-kommandona kopplar sig till
 // terminalen de startas från, se attach_console().
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod core;
+mod fuzzy;
 mod gui;
 mod pages;
 mod selfupdate;
 mod term;
 mod termview;
 mod theme;
+mod users;
 
 use crate::core::{COUSINS, Cousin, VERSION};
 use crate::term::{Mood, bold, c256, dim, red, say};
@@ -64,6 +67,12 @@ enum Cmd {
         #[arg(short = 'n', long)]
         dry_run: bool,
     },
+    /// ta bort Ruppa och kusinerna (dina data i ~/.puppa, ~/.muppa och ~/Documents behålls)
+    Uninstall {
+        /// fråga inte
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// öppna fönstret
     Gui,
     /// menyn i terminalen
@@ -104,6 +113,7 @@ fn main() -> ExitCode {
         Some(Cmd::Install { names }) => cmd_install(&names),
         Some(Cmd::Update { names, force }) => cmd_update(&names, force),
         Some(Cmd::SelfUpdate { dry_run }) => cmd_self_update(dry_run),
+        Some(Cmd::Uninstall { yes }) => cmd_uninstall(yes),
     };
     code(rc)
 }
@@ -260,6 +270,35 @@ fn cmd_self_update(dry_run: bool) -> i32 {
     }
 }
 
+/// Kör avinstallationsskriptet (samma som uninstall.sh / uninstall.ps1 i repot, inbakat i programmet).
+fn cmd_uninstall(yes: bool) -> i32 {
+    let (name, text) = if cfg!(windows) {
+        ("ruppa-uninstall.ps1", include_str!("../uninstall.ps1"))
+    } else {
+        ("ruppa-uninstall.sh", include_str!("../uninstall.sh"))
+    };
+    let path = std::env::temp_dir().join(name);
+    if let Err(e) = std::fs::write(&path, text) {
+        eprintln!("  {} kunde inte skriva {}: {e}", red("✘"), path.display());
+        return 1;
+    }
+    let mut cmd = if cfg!(windows) {
+        let mut c = std::process::Command::new("powershell");
+        c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]).arg(&path);
+        c
+    } else {
+        let mut c = std::process::Command::new("sh");
+        c.arg(&path);
+        c
+    };
+    if yes {
+        cmd.env("RUPPA_YES", "1");
+    }
+    let rc = cmd.status().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
+    let _ = std::fs::remove_file(&path);
+    rc
+}
+
 fn run_cousin(c: &Cousin, args: &[String]) -> i32 {
     let Some(exe) = core::cousin_exe(c.key) else {
         say(&format!("{} är inte installerad än. Kör: ruppa install {}", c.name, c.key), Mood::Worry);
@@ -274,7 +313,8 @@ fn run_cousin(c: &Cousin, args: &[String]) -> i32 {
     }
 }
 
-pub fn greeting(s: &core::Scan, joke_ok: bool) -> (String, Mood) {
+/// `joke`: vilket skämt (väljs en gång per skanning, så att pratbubblan står still), None = inget skämt.
+pub fn greeting(s: &core::Scan, joke: Option<usize>) -> (String, Mood) {
     let missing = s.missing();
     let mut old: Vec<&str> = s.outdated().iter().map(|c| c.name).collect();
     if s.self_outdated() {
@@ -299,13 +339,13 @@ pub fn greeting(s: &core::Scan, joke_ok: bool) -> (String, Mood) {
     if !old.is_empty() {
         return (format!("Hej! Jag är Ruppa. Det finns nytt för {}. Ska vi ruppa?", core::join_names(&old)), Mood::Wow);
     }
-    let joke = if joke_ok {
-        let i = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        format!(" {}", JOKES[(i % JOKES.len() as u64) as usize])
-    } else {
-        String::new()
-    };
+    let joke = joke.map(|i| format!(" {}", JOKES[i % JOKES.len()])).unwrap_or_default();
     (format!("Hej! Jag är Ruppa. Alla tre kusinerna är hemma och fräscha.{joke}"), Mood::Happy)
+}
+
+/// Ett slumpat skämtnummer (en gång per skanning).
+pub fn joke_seed() -> usize {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as usize).unwrap_or(0)
 }
 
 /// TUI-menyn, som Wuppas.
@@ -316,7 +356,7 @@ fn menu() -> i32 {
     term::clear_screen();
     let mut s = scan_with_spinner("Ringer runt till kusinerna…");
     loop {
-        let (msg, mood) = greeting(&s, term::width() >= 80);
+        let (msg, mood) = greeting(&s, (term::width() >= 80).then(joke_seed));
         let missing = s.missing();
         let old = s.outdated();
         let mut rows = vec![term::Row::Head("Starta".into())];

@@ -75,6 +75,8 @@ pub struct App {
     term_err: Option<(&'static str, String)>,
     /// kusiner som just nu visas som terminal (annars visas deras appsida), med argumenten terminalen startades med
     term_mode: HashMap<&'static str, Vec<String>>,
+    /// skämtet i pratbubblan (byts vid varje skanning, inte varje bildruta)
+    joke: usize,
     uppa: UppaPage,
     puppa: PuppaPage,
     muppa: MuppaPage,
@@ -105,6 +107,7 @@ impl App {
             focus_term: true,
             term_err: None,
             term_mode: HashMap::new(),
+            joke: 0,
             uppa: UppaPage::default(),
             puppa: PuppaPage::default(),
             muppa: MuppaPage::default(),
@@ -202,6 +205,7 @@ impl App {
             match m {
                 Msg::Scanned(s) => {
                     self.scan = Some(*s);
+                    self.joke = crate::joke_seed();
                     self.scanning = false;
                 }
                 Msg::Line(l) => {
@@ -212,6 +216,14 @@ impl App {
                 }
                 Msg::Done { ok, failed, what } => {
                     self.busy = None;
+                    // Ruppa är bara ett skal: sidorna läser om allt från de nya versionerna
+                    for k in &ok {
+                        match k.key {
+                            "uppa" => self.uppa.reset(),
+                            "puppa" => self.puppa.reset(),
+                            _ => self.muppa.reset(),
+                        }
+                    }
                     if failed.is_empty() {
                         let what = if ok.len() == 1 { what.strip_suffix('e').unwrap_or(what) } else { what };
                         self.say = Some((format!("Klart! {} är {what}.", names(&ok)), t));
@@ -275,7 +287,7 @@ impl App {
         }
         match &self.scan {
             None => "Hej! Jag är Ruppa. Jag ringer runt till kusinerna…".into(),
-            Some(s) => crate::greeting(s, true).0,
+            Some(s) => crate::greeting(s, Some(self.joke)).0,
         }
     }
 }
@@ -527,13 +539,7 @@ impl App {
     }
 
     fn sidebar(&mut self, ui: &mut Ui, t: f64) {
-        ui.horizontal(|ui| {
-            ui.add_space(6.0);
-            ui.label(RichText::new("Ruppa").size(20.0).color(FG));
-            ui.label(RichText::new(VERSION).size(11.0).color(DIM));
-        });
-        ui.add_space(14.0);
-        theme::overline(ui, "  Släkten");
+        ui.add_space(4.0);
         let mac = cfg!(target_os = "macos");
         let mut items: Vec<(Option<&'static str>, Cousin, String)> = vec![(None, RUPPA, "Översikt".into())];
         for c in COUSINS {
@@ -622,8 +628,52 @@ impl App {
         let k = core::cousin(key).unwrap_or(RUPPA);
         let installed = self.scan.as_ref().map(|s| s.get(key).installed());
         let accent = xterm(k.shade[2.min(k.shade.len() - 1)]);
-        let _ = accent;
+        // sidhuvud: maskot + namn till vänster, version och uppdatering till höger
+        let st = self.scan.as_ref().map(|s| s.get(key)).unwrap_or_default();
+        let top = ui.cursor().min;
         theme::page_header(ui, &k, self.now, k.desc);
+        if st.installed() {
+            let w = ui.available_width();
+            let mut hr = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(top, vec2(w, 64.0)))
+                    .layout(egui::Layout::right_to_left(egui::Align::Center)),
+            );
+            let busy_me = self.busy.as_deref().is_some_and(|b| b.contains(k.name));
+            if busy_me {
+                hr.add(egui::Spinner::new().color(accent));
+                hr.label(RichText::new(format!("Uppdaterar {}…", k.name)).color(DIM));
+            } else {
+                let label = if st.outdated() {
+                    format!(
+                        "Uppdatera {}  {} → {}",
+                        k.name,
+                        st.current.clone().unwrap_or_default(),
+                        st.latest.clone().unwrap_or_default()
+                    )
+                } else {
+                    format!("Uppdatera {}", k.name)
+                };
+                let clicked = if st.outdated() {
+                    theme::primary(&mut hr, self.busy.is_none(), &label, accent.gamma_multiply(0.8))
+                } else {
+                    theme::secondary(&mut hr, self.busy.is_none(), &label)
+                        .on_hover_text(format!(
+                            "{} {} är senaste versionen. Hämtar den igen.",
+                            k.name,
+                            st.current.clone().unwrap_or_default()
+                        ))
+                        .clicked()
+                };
+                if clicked {
+                    self.run_installers(ctx, vec![k], "Uppdaterar");
+                    self.show_log = false;
+                }
+                if let Some(c) = &st.current {
+                    hr.label(RichText::new(format!("version {c}")).color(DIM).size(12.5));
+                }
+            }
+        }
         ui.add_space(14.0);
         match installed {
             None => {

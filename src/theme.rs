@@ -245,34 +245,6 @@ pub fn card_titled(ui: &mut Ui, title: &str, sub: &str, add: impl FnOnce(&mut Ui
     ui.add_space(12.0);
 }
 
-/// En rad i en lista: vänsterställd text, färgad prick, markering för vald rad.
-pub fn list_row(ui: &mut Ui, selected: bool, title: &str, dot: Option<Color32>, accent: Color32) -> bool {
-    let w = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 34.0), Sense::click());
-    let p = ui.painter();
-    if selected {
-        p.rect_filled(rect, 8.0, accent.gamma_multiply(0.16));
-        p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 8.0), vec2(3.0, 18.0)), 2.0, accent);
-    } else if resp.hovered() {
-        p.rect_filled(rect, 8.0, HOVER);
-    }
-    let mut x = rect.left() + 14.0;
-    if let Some(c) = dot {
-        p.circle_filled(pos2(x + 3.0, rect.center().y), 3.5, c);
-        x += 14.0;
-    }
-    let font = FontId::proportional(14.0);
-    let max = rect.right() - x - 8.0;
-    let g = p.layout(title.to_string(), font, if selected { TEXT } else { TEXT.gamma_multiply(0.88) }, max);
-    let g = if g.rows.len() > 1 {
-        p.layout_no_wrap(crate::term::cut(title, (max / 7.5) as usize), FontId::proportional(14.0), TEXT)
-    } else {
-        g
-    };
-    p.galley(pos2(x, rect.center().y - g.size().y / 2.0), g, TEXT);
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
-}
-
 /// Liten etikett med färgad bakgrund.
 pub fn badge(ui: &mut Ui, text: &str, color: Color32) {
     egui::Frame::new()
@@ -317,4 +289,116 @@ pub fn page_header(ui: &mut Ui, who: &crate::core::Cousin, t: f64, sub: &str) {
         accent,
     );
     ui.painter().text(pos2(x, rect.center().y + 15.0), Align2::LEFT_CENTER, sub, FontId::proportional(13.5), MUTED);
+}
+
+/// En klickbar ruta (områden och skript): färgad ikon, rubrik, upp till två rader text och små etiketter längst ned.
+#[allow(clippy::too_many_arguments)]
+pub fn tile(
+    ui: &mut Ui,
+    size: egui::Vec2,
+    accent: Color32,
+    icon: &str,
+    title: &str,
+    body: &str,
+    badges: &[(String, Color32)],
+    selected: bool,
+) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let hover = ui.ctx().animate_bool_responsive(resp.id, resp.hovered() || selected);
+    let p = ui.painter();
+    let lift = vec2(0.0, -2.0 * hover);
+    let r = rect.translate(lift);
+    if hover > 0.0 {
+        p.add(
+            Shadow { offset: [0, 6], blur: 20, spread: 0, color: Color32::from_black_alpha((60.0 * hover) as u8) }
+                .as_shape(r, 14),
+        );
+    }
+    let fill = SURFACE.lerp_to_gamma(SURFACE2, hover);
+    let stroke = if selected { accent } else { BORDER.lerp_to_gamma(accent.gamma_multiply(0.7), hover) };
+    p.rect(r, 14.0, fill, Stroke::new(if selected { 1.5 } else { 1.0 }, stroke), StrokeKind::Inside);
+    let pad = 16.0;
+    let mut y = r.top() + pad;
+    let mut x = r.left() + pad;
+    if !icon.is_empty() {
+        let ir = Rect::from_min_size(pos2(x, y), vec2(38.0, 38.0));
+        p.rect_filled(ir, 10.0, accent.gamma_multiply(0.18));
+        p.rect_stroke(ir, 10.0, Stroke::new(1.0, accent.gamma_multiply(0.45)), StrokeKind::Inside);
+        p.text(ir.center(), Align2::CENTER_CENTER, icon, FontId::proportional(14.0), accent);
+        x = ir.right() + 12.0;
+    }
+    let tw = r.right() - x - pad;
+    let tg = p.layout(title.to_string(), FontId::proportional(15.5), TEXT, tw);
+    let th = tg.size().y;
+    let ty = if icon.is_empty() { y } else { y + (38.0 - th).max(0.0) / 2.0 };
+    p.galley(pos2(x, ty), tg, TEXT);
+    y = if icon.is_empty() { y + th + 6.0 } else { y + 38.0_f32.max(th) + 10.0 };
+    if !body.is_empty() {
+        let mut job =
+            egui::text::LayoutJob::simple(body.to_string(), FontId::proportional(12.5), MUTED, r.width() - 2.0 * pad);
+        job.wrap.max_rows = 2;
+        let g = ui.ctx().fonts_mut(|f| f.layout_job(job));
+        p.galley(pos2(r.left() + pad, y), g, MUTED);
+    }
+    // etiketter längst ned
+    let mut bx = r.left() + pad;
+    let by = r.bottom() - pad - 20.0;
+    for (text, col) in badges {
+        let g = p.layout_no_wrap(text.clone(), FontId::proportional(11.5), *col);
+        let br = Rect::from_min_size(pos2(bx, by), vec2(g.size().x + 16.0, 20.0));
+        p.rect(br, 10.0, col.gamma_multiply(0.14), Stroke::new(1.0, col.gamma_multiply(0.4)), StrokeKind::Inside);
+        p.galley(pos2(br.left() + 8.0, br.center().y - g.size().y / 2.0), g, *col);
+        bx = br.right() + 6.0;
+    }
+    resp
+}
+
+/// Lägg ut rutor i ett rutnät som anpassar antalet kolumner efter bredden.
+pub fn grid<T>(ui: &mut Ui, items: &[T], min_w: f32, h: f32, mut each: impl FnMut(&mut Ui, &T, egui::Vec2)) {
+    let gap = 12.0;
+    let avail = ui.available_width();
+    let cols = (((avail + gap) / (min_w + gap)).floor() as usize).max(1);
+    let w = (avail - gap * (cols as f32 - 1.0)) / cols as f32;
+    for row in items.chunks(cols) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for it in row {
+                each(ui, it, vec2(w, h));
+            }
+        });
+        ui.add_space(gap - ui.spacing().item_spacing.y + 4.0);
+    }
+}
+
+/// Segmenterad växel ("Skript | Användare"). True när valet ändrades.
+pub fn segmented(ui: &mut Ui, options: &[&str], cur: &mut usize, accent: Color32) -> bool {
+    let font = FontId::proportional(14.0);
+    let widths: Vec<f32> = options
+        .iter()
+        .map(|o| ui.painter().layout_no_wrap(o.to_string(), font.clone(), TEXT).size().x + 32.0)
+        .collect();
+    let (rect, _) = ui.allocate_exact_size(vec2(widths.iter().sum::<f32>() + 8.0, 38.0), Sense::hover());
+    ui.painter().rect(rect, 12.0, SURFACE, Stroke::new(1.0, BORDER), StrokeKind::Inside);
+    let mut x = rect.left() + 4.0;
+    let mut changed = false;
+    for (i, (o, w)) in options.iter().zip(&widths).enumerate() {
+        let r = Rect::from_min_size(pos2(x, rect.top() + 4.0), vec2(*w, rect.height() - 8.0));
+        let resp = ui
+            .interact(r, ui.scope_id().with(("seg", options.join("|"), i)), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let on = *cur == i;
+        if on {
+            ui.painter().rect_filled(r, 9.0, accent.gamma_multiply(0.85));
+        } else if resp.hovered() {
+            ui.painter().rect_filled(r, 9.0, HOVER);
+        }
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, *o, font.clone(), if on { Color32::WHITE } else { TEXT });
+        if resp.clicked() && !on {
+            *cur = i;
+            changed = true;
+        }
+        x += w;
+    }
+    changed
 }

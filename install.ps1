@@ -11,6 +11,7 @@
  $env:RUPPA_BINARY = 'C:\sökväg\ruppa.exe' installerar en lokal binär. $env:RUPPA_HOME flyttar mappen.
 #>
 $ErrorActionPreference = 'Stop'
+$Clock = [Diagnostics.Stopwatch]::StartNew()
 $ProgressPreference = 'SilentlyContinue'
 if ($PSVersionTable.PSEdition -ne 'Core') {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -101,5 +102,9 @@ Write-Host ''
 $p = Start-Process $target -ArgumentList 'install', '--no-anim' -Wait -PassThru -NoNewWindow
 if ($p.ExitCode -ne 0) { Warn 'Någon kusin gick inte att installera. Öppna Ruppa och försök igen.' }
 
-Write-Host "`n  ✔ Klart! Starta Ruppa från Startmenyn.`n" -ForegroundColor Green
+$Clock.Stop()
+$secs = [int]$Clock.Elapsed.TotalSeconds
+$took = if ($secs -ge 60) { "$([int][math]::Floor($secs / 60)) min $($secs % 60) s" } else { "$secs s" }
+Write-Host "`n  ✔ Klart på $took! Starta Ruppa från Startmenyn." -ForegroundColor Green
+Write-Host "  Avinstallera: irm https://raw.githubusercontent.com/$Repo/main/uninstall.ps1 | iex`n" -ForegroundColor DarkGray
 if (-not $env:RUPPA_NO_OPEN) { Start-Process $target -ArgumentList 'gui' }
