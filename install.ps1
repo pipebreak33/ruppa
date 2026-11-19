@@ -18,13 +18,17 @@ if ($PSVersionTable.PSEdition -ne 'Core') {
 }
 $OnWindows = ($PSVersionTable.PSEdition -ne 'Core') -or $IsWindows
 if (-not $OnWindows) {
-    throw 'På macOS och Linux: curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/install.sh | sh'
+    throw (T 'On macOS and Linux: curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/install.sh | sh' 'På macOS och Linux: curl -fsSL https://raw.githubusercontent.com/pipebreak33/ruppa/main/install.sh | sh')
 }
 $Repo = if ($env:RUPPA_REPO) { $env:RUPPA_REPO } else { 'pipebreak33/ruppa' }
 $Dir  = if ($env:RUPPA_HOME) { $env:RUPPA_HOME } else { Join-Path $HOME '.ruppa' }
 $Bin  = Join-Path $Dir 'bin'
 $Share = Join-Path $Dir 'share'
 
+# Language: TRUPPA_LANG, else ~/.truppa/config.json (shared by the whole troupe), else English
+$TL = $env:TRUPPA_LANG
+if (-not $TL) { try { $TL = (Get-Content -Raw -LiteralPath (Join-Path $HOME '.truppa/config.json') -ErrorAction Stop | ConvertFrom-Json).lang } catch { } }
+function T([string]$en, [string]$sv) { if ("$TL" -like 'sv*') { $sv } else { $en } }
 function Say($m)  { Write-Host "  R› $m" -ForegroundColor DarkYellow }
 function Warn($m) { Write-Host "  ! $m" -ForegroundColor Yellow }
 
@@ -42,18 +46,18 @@ try {
     } else {
         $base = if ($env:RUPPA_VERSION) { "https://github.com/$Repo/releases/download/$($env:RUPPA_VERSION)" }
                 else { "https://github.com/$Repo/releases/latest/download" }
-        Say "Hämtar $asset från github.com/$Repo"
+        Say (T "Fetching $asset from github.com/$Repo" "Hämtar $asset från github.com/$Repo")
         Invoke-WebRequest "$base/$asset" -OutFile $new -UseBasicParsing
         $sums = (Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing).Content
         if ($sums -is [byte[]]) { $sums = [Text.Encoding]::UTF8.GetString($sums) }
         $want = ($sums -split "`n" | Where-Object { $_ -match "\s\*?$([regex]::Escape($asset))\s*$" } |
                  ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
         $got = (Get-FileHash $new -Algorithm SHA256).Hash.ToLower()
-        if (-not $want -or $want.ToLower() -ne $got) { throw 'Kontrollsumman stämmer inte. Inget har ändrats.' }
+        if (-not $want -or $want.ToLower() -ne $got) { throw (T 'The checksum does not match. Nothing has changed.' 'Kontrollsumman stämmer inte. Inget har ändrats.') }
     }
     # ruppa.exe är en fönsterapp: kör den med -Wait för att få exitkoden
     $p = Start-Process $new -ArgumentList '--version' -Wait -PassThru -NoNewWindow
-    if ($p.ExitCode -ne 0) { throw 'Den nedladdade binären går inte att köra.' }
+    if ($p.ExitCode -ne 0) { throw (T 'The downloaded binary does not run.' 'Den nedladdade binären går inte att köra.') }
     $target = Join-Path $Bin 'ruppa.exe'
     # en körande ruppa.exe kan inte skrivas över, men den kan döpas om
     if (Test-Path $target) {
@@ -62,7 +66,7 @@ try {
         Rename-Item $target (Split-Path $old -Leaf) -Force
     }
     Move-Item $new $target -Force
-    Say "Ruppa installerad i $Bin"
+    Say (T "Ruppa installed in $Bin" "Ruppa installerad i $Bin")
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -83,10 +87,10 @@ $s = $sh.CreateShortcut($lnk)
 $s.TargetPath = $target
 $s.Arguments = 'gui'
 $s.WorkingDirectory = $HOME
-$s.Description = 'Uppa, Puppa, Muppa och Euppa i ett fönster'
+$s.Description = (T 'Uppa, Puppa, Muppa and Euppa in one window' 'Uppa, Puppa, Muppa och Euppa i ett fönster')
 if (Test-Path $icon) { $s.IconLocation = "$icon,0" } else { $s.IconLocation = "$target,0" }
 $s.Save()
-Say 'Ruppa finns i Startmenyn'
+Say (T 'Ruppa is in the Start menu' 'Ruppa finns i Startmenyn')
 
 # 4. bin i användarens PATH (för uppa, puppa, muppa och euppa i terminalen)
 $user = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -100,11 +104,11 @@ if (($env:Path -split ';') -notcontains $Bin) { $env:Path = "$Bin;$env:Path" }
 # 5. Kusinerna (Python installeras per användare med winget om det saknas)
 Write-Host ''
 $p = Start-Process $target -ArgumentList 'install', '--no-anim' -Wait -PassThru -NoNewWindow
-if ($p.ExitCode -ne 0) { Warn 'Någon kusin gick inte att installera. Öppna Ruppa och försök igen.' }
+if ($p.ExitCode -ne 0) { Warn (T 'One of the tools could not be installed. Open Ruppa and try again.' 'Någon kusin gick inte att installera. Öppna Ruppa och försök igen.') }
 
 $Clock.Stop()
 $secs = [int]$Clock.Elapsed.TotalSeconds
 $took = if ($secs -ge 60) { "$([int][math]::Floor($secs / 60)) min $($secs % 60) s" } else { "$secs s" }
-Write-Host "`n  ✔ Klart på $took! Starta Ruppa från Startmenyn." -ForegroundColor Green
-Write-Host "  Avinstallera: irm https://raw.githubusercontent.com/$Repo/main/uninstall.ps1 | iex`n" -ForegroundColor DarkGray
+Write-Host (T "`n  ✔ Done in $took! Start Ruppa from the Start menu." "`n  ✔ Klart på $took! Starta Ruppa från Startmenyn.") -ForegroundColor Green
+Write-Host "  $(T 'Uninstall:' 'Avinstallera:') irm https://raw.githubusercontent.com/$Repo/main/uninstall.ps1 | iex`n" -ForegroundColor DarkGray
 if (-not $env:RUPPA_NO_OPEN) { Start-Process $target -ArgumentList 'gui' }

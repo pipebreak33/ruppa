@@ -12,6 +12,12 @@
 # RUPPA_REPO=ägare/repo och RUPPA_VERSION=v1.2.3 styr källan. RUPPA_BINARY=/sökväg/ruppa installerar en lokal binär.
 # RUPPA_HOME flyttar mappen.
 set -eu
+# Language: TRUPPA_LANG, else ~/.truppa/config.json (shared by the whole troupe), else English
+TL="${TRUPPA_LANG:-}"
+if [ -z "$TL" ] && [ -f "$HOME/.truppa/config.json" ]; then
+  TL="$(sed -n 's/.*"lang"[^"]*"\([a-z]*\)".*/\1/p' "$HOME/.truppa/config.json" 2>/dev/null | head -n 1)"
+fi
+t() { case "$TL" in sv*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac; }
 START="$(date +%s)"
 
 REPO="${RUPPA_REPO:-pipebreak33/ruppa}"
@@ -31,9 +37,9 @@ case "$OS" in
     case "$ARCH" in
       x86_64|amd64) ASSET="ruppa-linux-x86_64" ;;
       aarch64|arm64) ASSET="ruppa-linux-aarch64" ;;
-      *) die "Ingen färdig Ruppa för $ARCH. Bygg själv: cargo build --release" ;;
+      *) die "$(t "No ready-made Ruppa for $ARCH. Build it yourself: cargo build --release" "Ingen färdig Ruppa för $ARCH. Bygg själv: cargo build --release")" ;;
     esac ;;
-  *) die "Okänt system: $OS. På Windows: irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex" ;;
+  *) die "$(t "Unknown system: $OS. On Windows: irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex" "Okänt system: $OS. På Windows: irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex")" ;;
 esac
 
 mkdir -p "$BIN" "$SHARE"
@@ -50,16 +56,16 @@ else
   else
     BASE="https://github.com/$REPO/releases/latest/download"
   fi
-  say "Hämtar $ASSET från github.com/$REPO"
-  curl -fsSL "$BASE/$ASSET" -o "$TMP/ruppa" || die "nedladdningen misslyckades – finns det en release?"
-  curl -fsSL "$BASE/SHA256SUMS" -o "$TMP/SHA256SUMS" || die "kunde inte hämta SHA256SUMS"
+  say "$(t "Fetching $ASSET from github.com/$REPO" "Hämtar $ASSET från github.com/$REPO")"
+  curl -fsSL "$BASE/$ASSET" -o "$TMP/ruppa" || die "$(t "the download failed: is there a release?" "nedladdningen misslyckades – finns det en release?")"
+  curl -fsSL "$BASE/SHA256SUMS" -o "$TMP/SHA256SUMS" || die "$(t "could not fetch SHA256SUMS" "kunde inte hämta SHA256SUMS")"
   WANT="$(awk -v n="$ASSET" '$2==n || $2=="*"n {print $1}' "$TMP/SHA256SUMS")"
   if command -v shasum >/dev/null 2>&1; then GOT="$(shasum -a 256 "$TMP/ruppa" | awk '{print $1}')"
   else GOT="$(sha256sum "$TMP/ruppa" | awk '{print $1}')"; fi
-  [ -n "$WANT" ] && [ "$WANT" = "$GOT" ] || die "kontrollsumman stämmer inte. Inget har ändrats."
+  [ -n "$WANT" ] && [ "$WANT" = "$GOT" ] || die "$(t "the checksum does not match. Nothing has changed." "kontrollsumman stämmer inte. Inget har ändrats.")"
 fi
 chmod +x "$TMP/ruppa"
-"$TMP/ruppa" --version >/dev/null 2>&1 || die "den nedladdade binären går inte att köra"
+"$TMP/ruppa" --version >/dev/null 2>&1 || die "$(t "the downloaded binary does not run" "den nedladdade binären går inte att köra")"
 rm -f "$BIN/ruppa"
 mv "$TMP/ruppa" "$BIN/ruppa"
 say "$("$BIN/ruppa" --version) i $BIN"
@@ -100,7 +106,7 @@ EOF
 </dict></plist>
 EOF
   touch "$APP"
-  say "Ruppa.app finns i ~/Applications (Launchpad, Spotlight)"
+  say "$(t "Ruppa.app is in ~/Applications (Launchpad, Spotlight)" "Ruppa.app finns i ~/Applications (Launchpad, Spotlight)")"
 else
   APPS="$HOME/.local/share/applications"
   mkdir -p "$APPS"
@@ -114,7 +120,7 @@ Icon=$SHARE/ruppa.png
 Terminal=false
 Categories=System;Utility;
 EOF
-  say "Ruppa finns bland dina program"
+  say "$(t "Ruppa is among your apps" "Ruppa finns bland dina program")"
 fi
 
 # 4. ~/.ruppa/bin i PATH (för uppa, puppa, muppa och euppa i terminalen)
@@ -134,10 +140,10 @@ esac
 
 # 5. Kusinerna
 printf '\n'
-"$BIN/ruppa" install --no-anim || warn "Någon kusin gick inte att installera. Öppna Ruppa och försök igen."
+"$BIN/ruppa" install --no-anim || warn "$(t "One of the tools could not be installed. Open Ruppa and try again." "Någon kusin gick inte att installera. Öppna Ruppa och försök igen.")"
 
 SECS=$(( $(date +%s) - START ))
 if [ "$SECS" -ge 60 ]; then TOOK="$((SECS / 60)) min $((SECS % 60)) s"; else TOOK="$SECS s"; fi
-printf '\n  \033[38;5;42m✔\033[0m Klart på %s! Öppna \033[1mRuppa\033[0m bland dina program.\n' "$TOOK"
-printf '  \033[2mAvinstallera: curl -fsSL https://raw.githubusercontent.com/%s/main/uninstall.sh | sh\033[0m\n\n' "$REPO"
+printf "$(t '\n  \033[38;5;42m✔\033[0m Done in %s! Open \033[1mRuppa\033[0m from your apps.\n' '\n  \033[38;5;42m✔\033[0m Klart på %s! Öppna \033[1mRuppa\033[0m bland dina program.\n')" "$TOOK"
+printf "$(t '  \033[2mUninstall: curl -fsSL https://raw.githubusercontent.com/%s/main/uninstall.sh | sh\033[0m\n\n' '  \033[2mAvinstallera: curl -fsSL https://raw.githubusercontent.com/%s/main/uninstall.sh | sh\033[0m\n\n')" "$REPO"
 if [ "$OS" = Darwin ] && [ -z "${RUPPA_NO_OPEN:-}" ]; then open "$HOME/Applications/Ruppa.app" 2>/dev/null || true; fi

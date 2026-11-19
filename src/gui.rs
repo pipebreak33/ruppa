@@ -147,14 +147,16 @@ impl App {
         if self.busy.is_some() || targets.is_empty() {
             return;
         }
-        let what = if verb == "Installerar" { "installerade" } else { "uppdaterade" };
-        self.busy = Some(format!("{verb} {}…", names(&targets)));
+        let what = if verb == "Installerar" { tr!("installed", "installerade") } else { tr!("updated", "uppdaterade") };
+        let verb_shown =
+            if verb == "Installerar" { tr!("Installing", "Installerar") } else { tr!("Updating", "Uppdaterar") };
+        self.busy = Some(format!("{verb_shown} {}…", names(&targets)));
         self.show_log = true;
         let (tx, ctx) = (self.tx.clone(), ctx.clone());
         thread::spawn(move || {
             let (mut ok, mut failed) = (Vec::new(), Vec::new());
             for k in targets {
-                let _ = tx.send(Msg::Line(format!("── {verb} {} ──", k.name)));
+                let _ = tx.send(Msg::Line(format!("── {verb_shown} {} ──", k.name)));
                 ctx.request_repaint();
                 let c2 = ctx.clone();
                 let tx2 = tx.clone();
@@ -165,7 +167,8 @@ impl App {
                 if good {
                     ok.push(k)
                 } else {
-                    let _ = tx.send(Msg::Line(format!("✘ {} strulade", k.name)));
+                    let _ =
+                        tx.send(Msg::Line(tr!(format!("✘ {} had trouble", k.name), format!("✘ {} strulade", k.name))));
                     failed.push(k)
                 }
             }
@@ -178,7 +181,7 @@ impl App {
         if self.busy.is_some() {
             return;
         }
-        self.busy = Some("Uppdaterar Ruppa…".into());
+        self.busy = Some(tr!("Updating Ruppa…", "Uppdaterar Ruppa…").into());
         self.show_log = true;
         let (tx, ctx) = (self.tx.clone(), ctx.clone());
         thread::spawn(move || {
@@ -193,9 +196,15 @@ impl App {
 
     fn launch(&mut self, k: Cousin) {
         match core::launch_in_terminal(k.key) {
-            Ok(()) => self.toast(format!("{} öppnas i ett terminalfönster.", k.name)),
+            Ok(()) => self.toast(tr!(
+                format!("{} opens in a terminal window.", k.name),
+                format!("{} öppnas i ett terminalfönster.", k.name)
+            )),
             Err(e) => {
-                self.toast(format!("Kunde inte starta {}: {e}", k.name));
+                self.toast(tr!(
+                    format!("Could not start {}: {e}", k.name),
+                    format!("Kunde inte starta {}: {e}", k.name)
+                ));
                 self.face = (Face::Sad, self.now);
             }
         }
@@ -233,14 +242,26 @@ impl App {
                     }
                     if failed.is_empty() {
                         let what = if ok.len() == 1 { what.strip_suffix('e').unwrap_or(what) } else { what };
-                        self.say = Some((format!("Klart! {} är {what}.", names(&ok)), t));
+                        self.say = Some((
+                            tr!(
+                                format!("Done! {} {} {what}.", names(&ok), if ok.len() == 1 { "is" } else { "are" }),
+                                format!("Klart! {} är {what}.", names(&ok))
+                            ),
+                            t,
+                        ));
                         self.face = (Face::Proud, t);
                         self.burst(t);
                     } else {
                         self.say = Some((
-                            format!(
-                                "{} strulade. Loggen nedanför visar varför. Prova igen om en stund.",
-                                names(&failed)
+                            tr!(
+                                format!(
+                                    "{} had trouble. The log below shows why. Try again in a while.",
+                                    names(&failed)
+                                ),
+                                format!(
+                                    "{} strulade. Loggen nedanför visar varför. Prova igen om en stund.",
+                                    names(&failed)
+                                )
                             ),
                             t,
                         ));
@@ -252,16 +273,32 @@ impl App {
                     self.busy = None;
                     match r {
                         Ok(Some(v)) => {
-                            self.say =
-                                Some((format!("Nu är jag Ruppa {v}. Starta om så kör du den nya versionen."), t));
+                            self.say = Some((
+                                tr!(
+                                    format!("Now I'm Ruppa {v}. Restart to run the new version."),
+                                    format!("Nu är jag Ruppa {v}. Starta om så kör du den nya versionen.")
+                                ),
+                                t,
+                            ));
                             self.face = (Face::Proud, t);
                             self.restart_to = Some(v);
                             self.burst(t);
                         }
-                        Ok(None) => self.say = Some(("Jag är redan senaste versionen.".into(), t)),
+                        Ok(None) => {
+                            self.say = Some((
+                                tr!("I'm already the latest version.", "Jag är redan senaste versionen.").into(),
+                                t,
+                            ))
+                        }
                         Err(e) => {
                             self.log.push(format!("✘ {e}"));
-                            self.say = Some((format!("Kunde inte uppdatera mig själv: {e}"), t));
+                            self.say = Some((
+                                tr!(
+                                    format!("Could not update myself: {e}"),
+                                    format!("Kunde inte uppdatera mig själv: {e}")
+                                ),
+                                t,
+                            ));
                             self.face = (Face::Sad, t);
                         }
                     }
@@ -290,10 +327,13 @@ impl App {
             return s.clone();
         }
         if let Some(b) = &self.busy {
-            return format!("{b} Loggen visar vad som händer.");
+            return tr!(format!("{b} The log shows what is happening."), format!("{b} Loggen visar vad som händer."));
         }
         match &self.scan {
-            None => "Hej! Jag är Ruppa. Jag ringer runt till kusinerna…".into(),
+            None => {
+                tr!("Hi! I'm Ruppa. I'm calling round the tools…", "Hej! Jag är Ruppa. Jag ringer runt till kusinerna…")
+                    .into()
+            }
             Some(s) => crate::greeting(s, Some(self.joke)).0,
         }
     }
@@ -414,7 +454,14 @@ impl App {
                 let old = s.outdated();
                 let missing = s.missing();
                 let n = old.len() + usize::from(s.self_outdated());
-                if n > 0 && theme::primary(ui, idle, &format!("Uppdatera allt ({n})"), theme::ACCENT) {
+                if n > 0
+                    && theme::primary(
+                        ui,
+                        idle,
+                        &tr!(format!("Update everything ({n})"), format!("Uppdatera allt ({n})")),
+                        theme::ACCENT,
+                    )
+                {
                     if !old.is_empty() {
                         self.run_installers(ctx, old, "Uppdaterar");
                     } else {
@@ -423,38 +470,69 @@ impl App {
                 }
                 if !missing.is_empty() {
                     let label = if missing.len() == COUSINS.len() {
-                        "Installera alla".to_string()
+                        tr!("Install all", "Installera alla").to_string()
                     } else {
-                        format!("Installera {}", names(&missing))
+                        tr!(format!("Install {}", names(&missing)), format!("Installera {}", names(&missing)))
                     };
                     if theme::primary(ui, idle, &label, theme::ACCENT) {
                         self.run_installers(ctx, missing, "Installerar");
                     }
                 }
             }
-            if theme::secondary(ui, !self.scanning && idle, "Skanna om").clicked() {
+            if theme::secondary(ui, !self.scanning && idle, tr!("Scan again", "Skanna om")).clicked() {
                 self.rescan(ctx);
             }
             let self_label = match scan.as_ref().and_then(|s| s.self_latest.clone()) {
-                Some(l) if core::newer(&l, VERSION) => format!("Uppdatera Ruppa ({VERSION} → {l})"),
-                _ => "Uppdatera Ruppa".into(),
+                Some(l) if core::newer(&l, VERSION) => {
+                    tr!(format!("Update Ruppa ({VERSION} → {l})"), format!("Uppdatera Ruppa ({VERSION} → {l})"))
+                }
+                _ => tr!("Update Ruppa", "Uppdatera Ruppa").into(),
             };
             if theme::secondary(ui, idle, &self_label).clicked() {
                 self.self_update(ctx);
             }
             if self.ask_uninstall == Some("ruppa") {
-                ui.label(RichText::new("Ta bort Ruppa och alla kusiner? Dina data behålls.").color(YELLOW));
-                if theme::primary(ui, idle, "Ja, avinstallera allt", RED.gamma_multiply(0.8)) {
+                ui.label(
+                    RichText::new(tr!(
+                        "Remove Ruppa and all the tools? Your data is kept.",
+                        "Ta bort Ruppa och alla kusiner? Dina data behålls."
+                    ))
+                    .color(YELLOW),
+                );
+                if theme::primary(
+                    ui,
+                    idle,
+                    tr!("Yes, uninstall everything", "Ja, avinstallera allt"),
+                    RED.gamma_multiply(0.8),
+                ) {
                     self.uninstall_all(ctx);
                 }
-                if theme::secondary(ui, true, "Avbryt").clicked() {
+                if theme::secondary(ui, true, tr!("Cancel", "Avbryt")).clicked() {
                     self.ask_uninstall = None;
                 }
-            } else if theme::ghost(ui, "Avinstallera Ruppa…") && idle {
+            } else if theme::ghost(ui, tr!("Uninstall Ruppa…", "Avinstallera Ruppa…")) && idle {
                 self.ask_uninstall = Some("ruppa");
             }
+            // the language for the whole troupe: the window changes at once, the tools follow the shared file
+            if ui
+                .add(egui::Button::new(RichText::new(tr!("Svenska", "English")).color(theme::MUTED)).frame(false))
+                .on_hover_text(tr!("Byt till svenska (alla verktygen)", "Switch to English (all the tools)"))
+                .clicked()
+            {
+                let _ = core::set_lang(!core::is_sv());
+                self.uppa.reset();
+                self.puppa.reset();
+                self.euppa.reset();
+                self.muppa.reset();
+                ctx.request_repaint();
+            }
             if let Some(v) = self.restart_to.clone()
-                && theme::primary(ui, true, &format!("Starta om som {v}"), theme::ACCENT)
+                && theme::primary(
+                    ui,
+                    true,
+                    &tr!(format!("Restart as {v}"), format!("Starta om som {v}")),
+                    theme::ACCENT,
+                )
             {
                 if let Ok(exe) = std::env::current_exe() {
                     let _ = std::process::Command::new(exe).arg("gui").spawn();
@@ -485,18 +563,18 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(k.name).size(21.0).color(accent));
                         match &st {
-                            None => pill(ui, "kollar…", DIM),
+                            None => pill(ui, tr!("checking…", "kollar…"), DIM),
                             Some(s) if !s.installed() => pill(ui, "saknas", DIM),
-                            Some(s) if s.outdated() => pill(ui, "kan uppdateras", YELLOW),
-                            Some(_) => pill(ui, "aktuell", GREEN),
+                            Some(s) if s.outdated() => pill(ui, tr!("can be updated", "kan uppdateras"), YELLOW),
+                            Some(_) => pill(ui, tr!("up to date", "aktuell"), GREEN),
                         }
                     });
-                    ui.label(RichText::new(k.desc).color(DIM));
+                    ui.label(RichText::new(k.desc()).color(DIM));
                     let ver = match &st {
                         None => String::new(),
                         Some(s) => match (&s.current, &s.latest) {
-                            (None, Some(l)) => format!("senaste {l}"),
-                            (None, None) => "inte installerad".into(),
+                            (None, Some(l)) => tr!(format!("latest {l}"), format!("senaste {l}")),
+                            (None, None) => tr!("not installed", "inte installerad").into(),
                             (Some(c), Some(l)) if s.outdated() => format!("{c} → {l}"),
                             (Some(c), _) => format!("version {c}"),
                         },
@@ -506,12 +584,18 @@ impl App {
             });
             ui.add_space(4.0);
             if self.ask_uninstall == Some(k.key) {
-                ui.label(RichText::new(format!("Ta bort {} ur Ruppa? Dina data behålls.", k.name)).color(YELLOW));
+                ui.label(
+                    RichText::new(tr!(
+                        format!("Remove {} from Ruppa? Your data is kept.", k.name),
+                        format!("Ta bort {} ur Ruppa? Dina data behålls.", k.name)
+                    ))
+                    .color(YELLOW),
+                );
                 ui.horizontal(|ui| {
-                    if theme::primary(ui, idle, "Ja, avinstallera", RED.gamma_multiply(0.8)) {
+                    if theme::primary(ui, idle, tr!("Yes, uninstall", "Ja, avinstallera"), RED.gamma_multiply(0.8)) {
                         self.uninstall(ctx, k);
                     }
-                    if theme::secondary(ui, true, "Avbryt").clicked() {
+                    if theme::secondary(ui, true, tr!("Cancel", "Avbryt")).clicked() {
                         self.ask_uninstall = None;
                     }
                 });
@@ -519,19 +603,26 @@ impl App {
             }
             ui.horizontal(|ui| match &st {
                 Some(s) if s.installed() => {
-                    if theme::primary(ui, true, &format!("  Öppna {}  ", k.name), accent.gamma_multiply(0.75)) {
+                    if theme::primary(
+                        ui,
+                        true,
+                        &tr!(format!("  Open {}  ", k.name), format!("  Öppna {}  ", k.name)),
+                        accent.gamma_multiply(0.75),
+                    ) {
                         self.select(Some(k.key));
                     }
-                    let label = if s.outdated() { "Uppdatera" } else { "Installera om" };
+                    let label =
+                        if s.outdated() { tr!("Update", "Uppdatera") } else { tr!("Reinstall", "Installera om") };
                     if theme::secondary(ui, idle, label).clicked() {
                         self.run_installers(ctx, vec![k], "Uppdaterar");
                     }
-                    if theme::ghost(ui, "Avinstallera") && idle {
+                    if theme::ghost(ui, tr!("Uninstall", "Avinstallera")) && idle {
                         self.ask_uninstall = Some(k.key);
                     }
                 }
                 Some(_) => {
-                    let install = theme::primary(ui, idle, "  Installera  ", accent.gamma_multiply(0.75));
+                    let install =
+                        theme::primary(ui, idle, tr!("  Install  ", "  Installera  "), accent.gamma_multiply(0.75));
                     if install {
                         self.run_installers(ctx, vec![k], "Installerar");
                     }
@@ -557,15 +648,27 @@ impl App {
         self.term_mode.remove(k.key);
         match core::uninstall_cousin(k.key) {
             Ok(()) => {
-                self.log.push(format!("✔ {} avinstallerad ur Ruppa", k.name));
+                self.log.push(tr!(
+                    format!("✔ {} uninstalled from Ruppa", k.name),
+                    format!("✔ {} avinstallerad ur Ruppa", k.name)
+                ));
                 self.say = Some((
-                    format!("{} är avinstallerad. Dina data finns kvar om du installerar igen.", k.name),
+                    tr!(
+                        format!("{} is uninstalled. Your data is still there if you install again.", k.name),
+                        format!("{} är avinstallerad. Dina data finns kvar om du installerar igen.", k.name)
+                    ),
                     self.now,
                 ));
             }
             Err(e) => {
                 self.log.push(format!("✘ {e}"));
-                self.say = Some((format!("Det gick inte att avinstallera {}: {e}", k.name), self.now));
+                self.say = Some((
+                    tr!(
+                        format!("Could not uninstall {}: {e}", k.name),
+                        format!("Det gick inte att avinstallera {}: {e}", k.name)
+                    ),
+                    self.now,
+                ));
                 self.face = (Face::Sad, self.now);
             }
         }
@@ -591,10 +694,18 @@ impl App {
                 }
                 match cmd.spawn() {
                     Ok(_) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-                    Err(e) => self.say = Some((format!("Kunde inte avinstallera: {e}"), self.now)),
+                    Err(e) => {
+                        self.say = Some((
+                            tr!(format!("Could not uninstall: {e}"), format!("Kunde inte avinstallera: {e}")),
+                            self.now,
+                        ))
+                    }
                 }
             }
-            Err(e) => self.say = Some((format!("Kunde inte avinstallera: {e}"), self.now)),
+            Err(e) => {
+                self.say =
+                    Some((tr!(format!("Could not uninstall: {e}"), format!("Kunde inte avinstallera: {e}")), self.now))
+            }
         }
     }
 
@@ -631,7 +742,8 @@ impl App {
     fn sidebar(&mut self, ui: &mut Ui, t: f64) {
         ui.add_space(4.0);
         let mac = cfg!(target_os = "macos");
-        let mut items: Vec<(Option<&'static str>, Cousin, String)> = vec![(None, RUPPA, "Översikt".into())];
+        let mut items: Vec<(Option<&'static str>, Cousin, String)> =
+            vec![(None, RUPPA, tr!("Overview", "Översikt").into())];
         for c in COUSINS {
             items.push((Some(c.key), c, c.name.into()));
         }
@@ -671,20 +783,15 @@ impl App {
                 col,
             );
             // status: kör (grön), kan uppdateras (gul), saknas (grå)
-            let sub = match tab {
-                None => "alla verktyg".into(),
-                Some(k) if self.sessions.contains_key(k) => "kör".into(),
+            let (sub, sub_col): (String, _) = match tab {
+                None => (tr!("all the tools", "alla verktyg").into(), DIM),
+                Some(k) if self.sessions.contains_key(k) => (tr!("running", "kör").into(), GREEN),
                 Some(k) => match self.scan.as_ref().map(|s| s.get(k)) {
-                    Some(st) if !st.installed() => "saknas".into(),
-                    Some(st) if st.outdated() => "nyare finns".into(),
-                    Some(_) => "redo".into(),
-                    None => String::new(),
+                    Some(st) if !st.installed() => (tr!("missing", "saknas").into(), DIM),
+                    Some(st) if st.outdated() => (tr!("newer available", "nyare finns").into(), YELLOW),
+                    Some(_) => (tr!("ready", "redo").into(), DIM),
+                    None => (String::new(), DIM),
                 },
-            };
-            let sub_col = match sub.as_str() {
-                "kör" => GREEN,
-                "nyare finns" => YELLOW,
-                _ => DIM,
             };
             p.text(
                 pos2(rect.left() + 52.0, rect.center().y + 10.0),
@@ -721,7 +828,7 @@ impl App {
         // sidhuvud: maskot + namn till vänster, version och uppdatering till höger
         let st = self.scan.as_ref().map(|s| s.get(key)).unwrap_or_default();
         let top = ui.cursor().min;
-        theme::page_header(ui, &k, self.now, k.desc);
+        theme::page_header(ui, &k, self.now, k.desc());
         if st.installed() {
             let w = ui.available_width();
             let mut hr = ui.new_child(
@@ -732,26 +839,43 @@ impl App {
             let busy_me = self.busy.as_deref().is_some_and(|b| b.contains(k.name));
             if busy_me {
                 hr.add(egui::Spinner::new().color(accent));
-                hr.label(RichText::new(format!("Uppdaterar {}…", k.name)).color(DIM));
+                hr.label(
+                    RichText::new(tr!(format!("Updating {}…", k.name), format!("Uppdaterar {}…", k.name))).color(DIM),
+                );
             } else {
                 let label = if st.outdated() {
-                    format!(
-                        "Uppdatera {}  {} → {}",
-                        k.name,
-                        st.current.clone().unwrap_or_default(),
-                        st.latest.clone().unwrap_or_default()
+                    tr!(
+                        format!(
+                            "Update {}  {} → {}",
+                            k.name,
+                            st.current.clone().unwrap_or_default(),
+                            st.latest.clone().unwrap_or_default()
+                        ),
+                        format!(
+                            "Uppdatera {}  {} → {}",
+                            k.name,
+                            st.current.clone().unwrap_or_default(),
+                            st.latest.clone().unwrap_or_default()
+                        )
                     )
                 } else {
-                    format!("Uppdatera {}", k.name)
+                    tr!(format!("Update {}", k.name), format!("Uppdatera {}", k.name))
                 };
                 let clicked = if st.outdated() {
                     theme::primary(&mut hr, self.busy.is_none(), &label, accent.gamma_multiply(0.8))
                 } else {
                     theme::secondary(&mut hr, self.busy.is_none(), &label)
-                        .on_hover_text(format!(
-                            "{} {} är senaste versionen. Hämtar den igen.",
-                            k.name,
-                            st.current.clone().unwrap_or_default()
+                        .on_hover_text(tr!(
+                            format!(
+                                "{} {} is the latest version. Fetching it again.",
+                                k.name,
+                                st.current.clone().unwrap_or_default()
+                            ),
+                            format!(
+                                "{} {} är senaste versionen. Hämtar den igen.",
+                                k.name,
+                                st.current.clone().unwrap_or_default()
+                            )
                         ))
                         .clicked()
                 };
@@ -773,11 +897,19 @@ impl App {
             Some(false) => {
                 ui.add_space(30.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new(format!("{} är inte installerad än.", k.name)).size(18.0));
+                    ui.label(
+                        RichText::new(tr!(
+                            format!("{} is not installed yet.", k.name),
+                            format!("{} är inte installerad än.", k.name)
+                        ))
+                        .size(18.0),
+                    );
                     ui.add_space(8.0);
                     let idle = self.busy.is_none();
-                    let b = egui::Button::new(RichText::new(format!("Installera {}", k.name)).strong())
-                        .fill(accent.gamma_multiply(0.6));
+                    let b = egui::Button::new(
+                        RichText::new(tr!(format!("Install {}", k.name), format!("Installera {}", k.name))).strong(),
+                    )
+                    .fill(accent.gamma_multiply(0.6));
                     if ui.add_enabled(idle, b).clicked() {
                         self.run_installers(ctx, vec![k], "Installerar");
                         self.tab = None;
@@ -818,21 +950,27 @@ impl App {
         let mut back = false;
         ui.horizontal(|ui| {
             ui.label(RichText::new(k.name).size(20.0).strong().color(accent));
-            ui.label(RichText::new(k.desc).color(DIM));
+            ui.label(RichText::new(k.desc()).color(DIM));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(RichText::new("Tillbaka till appen").strong()).clicked() {
+                if ui.button(RichText::new(tr!("Back to the app", "Tillbaka till appen")).strong()).clicked() {
                     back = true;
                 }
                 if self.sessions.contains_key(key) {
-                    if ui.button("Stoppa").clicked() {
+                    if ui.button(tr!("Stop", "Stoppa")).clicked() {
                         stop = true;
                     }
-                    if ui.button("Starta om").clicked() {
+                    if ui.button(tr!("Restart", "Starta om")).clicked() {
                         restart = true;
                     }
                 }
                 if installed == Some(true)
-                    && ui.button("Eget fönster").on_hover_text("Öppna i ett vanligt terminalfönster").clicked()
+                    && ui
+                        .button(tr!("Own window", "Eget fönster"))
+                        .on_hover_text(tr!(
+                            "Open in an ordinary terminal window",
+                            "Öppna i ett vanligt terminalfönster"
+                        ))
+                        .clicked()
                 {
                     self.launch(k);
                 }
@@ -851,7 +989,7 @@ impl App {
             self.focus_term = true;
         }
         if stop {
-            self.say = Some((format!("{} stoppad.", k.name), self.now));
+            self.say = Some((tr!(format!("{} stopped.", k.name), format!("{} stoppad.", k.name)), self.now));
         }
 
         match installed {
@@ -862,14 +1000,23 @@ impl App {
             Some(false) => {
                 ui.add_space(30.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new(format!("{} är inte installerad än.", k.name)).size(18.0));
+                    ui.label(
+                        RichText::new(tr!(
+                            format!("{} is not installed yet.", k.name),
+                            format!("{} är inte installerad än.", k.name)
+                        ))
+                        .size(18.0),
+                    );
                     ui.add_space(8.0);
                     let idle = self.busy.is_none();
                     if ui
                         .add_enabled(
                             idle,
-                            egui::Button::new(RichText::new(format!("Installera {}", k.name)).strong())
-                                .fill(accent.gamma_multiply(0.6)),
+                            egui::Button::new(
+                                RichText::new(tr!(format!("Install {}", k.name), format!("Installera {}", k.name)))
+                                    .strong(),
+                            )
+                            .fill(accent.gamma_multiply(0.6)),
                         )
                         .clicked()
                     {
@@ -884,7 +1031,10 @@ impl App {
         if stop {
             ui.vertical_centered(|ui| {
                 ui.add_space(30.0);
-                if ui.button(RichText::new(format!("Starta {}", k.name)).strong()).clicked() {
+                if ui
+                    .button(RichText::new(tr!(format!("Start {}", k.name), format!("Starta {}", k.name))).strong())
+                    .clicked()
+                {
                     self.focus_term = true;
                     self.term_err = None;
                     self.sessions.remove(key);
@@ -896,8 +1046,14 @@ impl App {
             if let Some((ek, e)) = &self.term_err
                 && *ek == key
             {
-                ui.label(RichText::new(format!("Kunde inte starta {}: {e}", k.name)).color(RED));
-                if ui.button("Försök igen").clicked() {
+                ui.label(
+                    RichText::new(tr!(
+                        format!("Could not start {}: {e}", k.name),
+                        format!("Kunde inte starta {}: {e}", k.name)
+                    ))
+                    .color(RED),
+                );
+                if ui.button(tr!("Try again", "Försök igen")).clicked() {
                     self.term_err = None;
                 }
                 return;
@@ -920,7 +1076,7 @@ impl App {
             let msg = format!("{} {}. ", k.name, s.exit.clone().unwrap_or_else(|| "avslutades".into()));
             ui.horizontal(|ui| {
                 ui.label(RichText::new(msg).color(DIM));
-                if ui.button(RichText::new("Starta igen").strong()).clicked() {
+                if ui.button(RichText::new(tr!("Start again", "Starta igen")).strong()).clicked() {
                     restart = true;
                 }
             });
@@ -934,18 +1090,30 @@ impl App {
 
     fn log_panel(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            let arrow = if self.show_log { "Dölj" } else { "Visa" };
-            if ui.add(egui::Button::new(RichText::new(format!("{arrow} logg")).color(DIM)).frame(false)).clicked() {
+            let arrow = if self.show_log { tr!("Hide", "Dölj") } else { tr!("Show", "Visa") };
+            if ui
+                .add(
+                    egui::Button::new(RichText::new(format!("{arrow} {}", tr!("log", "logg"))).color(DIM)).frame(false),
+                )
+                .clicked()
+            {
                 self.show_log = !self.show_log;
             }
             if !self.log.is_empty()
                 && self.show_log
-                && ui.add(egui::Button::new(RichText::new("töm").color(DIM)).frame(false)).clicked()
+                && ui.add(egui::Button::new(RichText::new(tr!("clear", "töm")).color(DIM)).frame(false)).clicked()
             {
                 self.log.clear();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(format!("ruppa {VERSION} · Wuppa i Rust")).color(DIM).size(11.5));
+                ui.label(
+                    RichText::new(tr!(
+                        format!("ruppa {VERSION} · Wuppa in Rust"),
+                        format!("ruppa {VERSION} · Wuppa i Rust")
+                    ))
+                    .color(DIM)
+                    .size(11.5),
+                );
             });
         });
         if self.show_log {
@@ -960,7 +1128,14 @@ impl App {
                         .max_height(ui.available_height().max(80.0))
                         .show(ui, |ui| {
                             if self.log.is_empty() {
-                                ui.label(RichText::new("Här syns installernas utdata.").color(DIM).monospace());
+                                ui.label(
+                                    RichText::new(tr!(
+                                        "The installers' output shows here.",
+                                        "Här syns installernas utdata."
+                                    ))
+                                    .color(DIM)
+                                    .monospace(),
+                                );
                             }
                             for l in &self.log {
                                 let col = if l.starts_with('✘') || l.contains("misslyck") || l.contains("error") {
@@ -1086,7 +1261,10 @@ impl App {
             let c2 = ctx.clone();
             ctx.request_screenshot(move |img| {
                 if let Err(e) = write_bmp(&path, &img) {
-                    eprintln!("kunde inte spara {path}: {e}");
+                    eprintln!(
+                        "{}",
+                        tr!(format!("could not save {path}: {e}"), format!("kunde inte spara {path}: {e}"))
+                    );
                 }
                 c2.send_viewport_cmd(egui::ViewportCommand::Close);
                 c2.request_repaint();
@@ -1140,7 +1318,13 @@ pub fn run() -> i32 {
     match eframe::run_native("Ruppa", opts, Box::new(|cc| Ok(Box::new(App::new(cc))))) {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("  kunde inte öppna fönstret: {e}\n  Kör ruppa tui för menyn i terminalen.");
+            eprintln!(
+                "{}",
+                tr!(
+                    format!("  could not open the window: {e}\n  Run ruppa tui for the menu in the terminal."),
+                    format!("  kunde inte öppna fönstret: {e}\n  Kör ruppa tui för menyn i terminalen.")
+                )
+            );
             1
         }
     }

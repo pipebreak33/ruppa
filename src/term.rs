@@ -370,7 +370,17 @@ pub fn with_spinner<T: Send + 'static>(msg: &str, work: impl FnOnce() -> T + Sen
 pub fn cousin_line(k: &Cousin, s: &core::Status, desc: bool) -> String {
     let w = width();
     let (mark, ver) = if !s.installed() {
-        (dim("○"), dim(&format!("saknas{}", s.latest.as_ref().map(|l| format!(" · {l} finns")).unwrap_or_default())))
+        (
+            dim("○"),
+            dim(&format!(
+                "{}{}",
+                tr!("missing", "saknas"),
+                s.latest
+                    .as_ref()
+                    .map(|l| tr!(format!(" · {l} available"), format!(" · {l} finns")))
+                    .unwrap_or_default()
+            )),
+        )
     } else if s.outdated() {
         (
             yellow("●"),
@@ -389,7 +399,7 @@ pub fn cousin_line(k: &Cousin, s: &core::Status, desc: bool) -> String {
     if w < 58 || !desc {
         return head + &ver;
     }
-    format!("{head}{}  {}", pad(&ver, 18), dim(&cut(k.desc, w.saturating_sub(40).max(10))))
+    format!("{head}{}  {}", pad(&ver, 18), dim(&cut(k.desc(), w.saturating_sub(40).max(10))))
 }
 
 pub fn status_lines(scan: &core::Scan, desc: bool) -> Vec<String> {
@@ -511,7 +521,7 @@ pub fn choose(rows: &[Row], msg: &str, mood: Mood, status: &[String], sub: &str)
         }
         lines.push(String::new());
         lines.push(dim(if w >= 50 {
-            "   ↑/↓ · enter · siffra väljer · q avsluta"
+            tr!("   ↑/↓ · enter · a digit picks · q quits", "   ↑/↓ · enter · siffra väljer · q avsluta")
         } else {
             "   ↑↓ enter · q"
         }));
@@ -575,7 +585,7 @@ pub fn clear_screen() {
 
 pub fn pause() {
     if std::io::stdin().is_terminal() {
-        print!("{}", dim("\n   enter för att fortsätta "));
+        print!("{}", dim(tr!("\n   enter to continue ", "\n   enter för att fortsätta ")));
         let _ = std::io::stdout().flush();
         let mut s = String::new();
         let _ = std::io::stdin().read_line(&mut s);

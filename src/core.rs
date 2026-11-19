@@ -10,6 +10,55 @@ use std::sync::OnceLock;
 use std::thread;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// ───────────────────────────── language ─────────────────────────────
+// One setting for the whole troupe: ~/.truppa/config.json {"lang": "en"|"sv"}. TRUPPA_LANG overrides it.
+// Default: English. The tools read the same file, so a change here applies to all of them.
+static SV: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn truppa_config() -> PathBuf {
+    home().join(".truppa").join("config.json")
+}
+
+fn read_truppa() -> serde_json::Map<String, serde_json::Value> {
+    std::fs::read_to_string(truppa_config())
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default()
+}
+
+/// Read the language once at start: TRUPPA_LANG, then ~/.truppa/config.json, else English.
+pub fn init_lang() {
+    let v = std::env::var("TRUPPA_LANG")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| read_truppa().get("lang").and_then(|v| v.as_str()).map(String::from))
+        .unwrap_or_default();
+    SV.store(v.to_lowercase().starts_with("sv"), std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_sv() -> bool {
+    SV.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// "en" or "sv": passed to the tools as TRUPPA_LANG.
+pub fn lang() -> &'static str {
+    if is_sv() { "sv" } else { "en" }
+}
+
+/// Change the language for the whole troupe (writes the shared file).
+pub fn set_lang(sv: bool) -> Result<(), String> {
+    SV.store(sv, std::sync::atomic::Ordering::Relaxed);
+    let mut cfg = read_truppa();
+    cfg.insert("lang".into(), serde_json::Value::from(lang()));
+    let path = truppa_config();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&serde_json::Value::Object(cfg)).unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
 pub const OWNER: &str = "pipebreak33";
 
 /// En kusin: en egen Python-TUI med eget repo och egna installers.
@@ -21,7 +70,14 @@ pub struct Cousin {
     /// xterm-256-färger från ljus topp till mörkare botten (samma som i kusinens egen kod)
     pub shade: &'static [u8],
     pub art: &'static [&'static str],
-    pub desc: &'static str,
+    pub desc_en: &'static str,
+    pub desc_sv: &'static str,
+}
+
+impl Cousin {
+    pub fn desc(&self) -> &'static str {
+        tr!(self.desc_en, self.desc_sv)
+    }
 }
 
 pub const UPPA: Cousin = Cousin {
@@ -30,7 +86,8 @@ pub const UPPA: Cousin = Cousin {
     logo: "U›",
     shade: &[121, 85, 49, 43, 36],
     art: &["██     ██", "██{e}██", "██{m}██", "██▄   ▄██", " ▀█████▀ "],
-    desc: "håller PowerShell- och Microsoft-verktygen uppdaterade",
+    desc_en: "keeps the PowerShell and Microsoft tools up to date",
+    desc_sv: "håller PowerShell- och Microsoft-verktygen uppdaterade",
 };
 pub const PUPPA: Cousin = Cousin {
     key: "puppa",
@@ -38,7 +95,8 @@ pub const PUPPA: Cousin = Cousin {
     logo: "P›",
     shade: &[117, 75, 69, 63],
     art: &["████████▄", "██{e}██", "██{m}██", "████████▀", "██       ", "▀▀       "],
-    desc: "M365-admin i PowerShell med några knapptryck",
+    desc_en: "Microsoft 365 admin in PowerShell in a few keystrokes",
+    desc_sv: "M365-admin i PowerShell med några knapptryck",
 };
 pub const MUPPA: Cousin = Cousin {
     key: "muppa",
@@ -46,7 +104,8 @@ pub const MUPPA: Cousin = Cousin {
     logo: "M›",
     shade: &[219, 213, 177, 141, 135, 99],
     art: &["██▀▄ ▄▀██", "██{e}██", "██{m}██", "██     ██", "██     ██", "▀▀     ▀▀"],
-    desc: "flyttar en dator från lokal AD till Entra ID",
+    desc_en: "moves a computer from on-premises AD to Entra ID",
+    desc_sv: "flyttar en dator från lokal AD till Entra ID",
 };
 pub const EUPPA: Cousin = Cousin {
     key: "euppa",
@@ -54,7 +113,8 @@ pub const EUPPA: Cousin = Cousin {
     logo: "E›",
     shade: &[218, 212, 205, 199, 163, 126],
     art: &["█████████", "██{e}  ", "██{m}  ", "███████  ", "██       ", "█████████"],
-    desc: "allt i Entra ID: användare, grupper, enheter, appar och roller",
+    desc_en: "everything in Entra ID: users, groups, devices, apps and roles",
+    desc_sv: "allt i Entra ID: användare, grupper, enheter, appar och roller",
 };
 /// Ruppa själv: ett R med ögon, i rost.
 pub const RUPPA: Cousin = Cousin {
@@ -63,7 +123,8 @@ pub const RUPPA: Cousin = Cousin {
     logo: "R›",
     shade: &[209, 208, 202, 166, 130, 94],
     art: &["████████▄", "██{e}██", "██{m}██", "████████▀", "██   ▀██▄", "▀▀     ▀▀"],
-    desc: "Wuppa i Rust: ett fönster för hela släkten",
+    desc_en: "Wuppa in Rust: one window for the whole troupe",
+    desc_sv: "Wuppa i Rust: ett fönster för hela släkten",
 };
 
 pub const COUSINS: [Cousin; 4] = [UPPA, PUPPA, MUPPA, EUPPA];
@@ -413,7 +474,13 @@ fn ensure_python(on_line: &mut dyn FnMut(String)) -> Result<Vec<String>, String>
     }
     if cfg!(windows) {
         if let Some(wg) = which("winget") {
-            on_line("Python saknas. Installerar Python 3.12 med winget (per användare, inga adminrättigheter)…".into());
+            on_line(
+                tr!(
+                    "Python is missing. Installing Python 3.12 with winget (per user, no admin rights)…",
+                    "Python saknas. Installerar Python 3.12 med winget (per användare, inga adminrättigheter)…"
+                )
+                .into(),
+            );
             let _ = quiet(Command::new(wg).args([
                 "install",
                 "--id",
@@ -430,14 +497,24 @@ fn ensure_python(on_line: &mut dyn FnMut(String)) -> Result<Vec<String>, String>
                 return Ok(p);
             }
         }
-        return Err(
-            "Python 3.8+ saknas. Installera det med: winget install Python.Python.3.12 (eller från python.org)".into(),
-        );
+        return Err(tr!(
+            "Python 3.8+ is missing. Install it with: winget install Python.Python.3.12 (or from python.org)",
+            "Python 3.8+ saknas. Installera det med: winget install Python.Python.3.12 (eller från python.org)"
+        )
+        .into());
     }
     if cfg!(target_os = "macos") {
-        Err("Python 3.8+ saknas. Kör: xcode-select --install   (eller: brew install python)".into())
+        Err(tr!(
+            "Python 3.8+ is missing. Run: xcode-select --install   (or: brew install python)",
+            "Python 3.8+ saknas. Kör: xcode-select --install   (eller: brew install python)"
+        )
+        .into())
     } else {
-        Err("Python 3.8+ saknas. Kör: sudo apt install python3   (eller dnf/pacman motsvarande)".into())
+        Err(tr!(
+            "Python 3.8+ is missing. Run: sudo apt install python3   (or the dnf/pacman equivalent)",
+            "Python 3.8+ saknas. Kör: sudo apt install python3   (eller dnf/pacman motsvarande)"
+        )
+        .into())
     }
 }
 
@@ -452,8 +529,8 @@ fn expand_tilde(p: &str) -> PathBuf {
 pub fn unpack_strip(data: &[u8], dest: &Path) -> Result<usize, String> {
     let mut ar = tar::Archive::new(flate2::read::GzDecoder::new(data));
     let mut n = 0;
-    for e in ar.entries().map_err(|e| format!("trasigt arkiv: {e}"))? {
-        let mut e = e.map_err(|e| format!("trasigt arkiv: {e}"))?;
+    for e in ar.entries().map_err(|e| tr!(format!("broken archive: {e}"), format!("trasigt arkiv: {e}")))? {
+        let mut e = e.map_err(|e| tr!(format!("broken archive: {e}"), format!("trasigt arkiv: {e}")))?;
         let path = e.path().map_err(|e| e.to_string())?.into_owned();
         let rel: PathBuf = path.components().skip(1).collect();
         if rel.as_os_str().is_empty() {
@@ -467,7 +544,12 @@ pub fn unpack_strip(data: &[u8], dest: &Path) -> Result<usize, String> {
         if let Some(parent) = out.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        e.unpack(&out).map_err(|e| format!("kunde inte packa upp {}: {e}", rel.display()))?;
+        e.unpack(&out).map_err(|e| {
+            tr!(
+                format!("could not unpack {}: {e}", rel.display()),
+                format!("kunde inte packa upp {}: {e}", rel.display())
+            )
+        })?;
         n += 1;
     }
     Ok(n)
@@ -497,7 +579,10 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
 pub fn install_cousin(name: &str, on_line: &mut dyn FnMut(String)) -> bool {
     match install_inner(name, on_line) {
         Ok(v) => {
-            on_line(format!("✔ {name} {v} installerad i {}", cousin_dir(name).display()));
+            on_line(tr!(
+                format!("✔ {name} {v} installed in {}", cousin_dir(name).display()),
+                format!("✔ {name} {v} installerad i {}", cousin_dir(name).display())
+            ));
             true
         }
         Err(e) => {
@@ -511,7 +596,12 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
     let py = ensure_python(on_line)?;
     let cfg = load_config(&home());
     let root = ruppa_dir();
-    std::fs::create_dir_all(bin_dir()).map_err(|e| format!("kunde inte skapa {}: {e}", bin_dir().display()))?;
+    std::fs::create_dir_all(bin_dir()).map_err(|e| {
+        tr!(
+            format!("could not create {}: {e}", bin_dir().display()),
+            format!("kunde inte skapa {}: {e}", bin_dir().display())
+        )
+    })?;
     let new = root.join(format!("{name}.new"));
     let _ = std::fs::remove_dir_all(&new);
     std::fs::create_dir_all(&new).map_err(|e| e.to_string())?;
@@ -519,17 +609,29 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
     let res = (|| {
         if let Some(local) = cfg["local"][name].as_str() {
             let src = expand_tilde(local);
-            on_line(format!("Kopierar {name} från {}", src.display()));
+            on_line(tr!(
+                format!("Copying {name} from {}", src.display()),
+                format!("Kopierar {name} från {}", src.display())
+            ));
             copy_tree(&src, &new)?;
         } else {
             let (repo, branch) = repo_for(name, &real_env, &cfg);
-            on_line(format!("Hämtar {name} från github.com/{repo} ({branch})"));
-            let data = http_get_bytes(&format!("https://github.com/{repo}/archive/{branch}.tar.gz"))
-                .map_err(|e| format!("kunde inte hämta github.com/{repo} ({branch}): {e}"))?;
+            on_line(tr!(
+                format!("Fetching {name} from github.com/{repo} ({branch})"),
+                format!("Hämtar {name} från github.com/{repo} ({branch})")
+            ));
+            let data = http_get_bytes(&format!("https://github.com/{repo}/archive/{branch}.tar.gz")).map_err(|e| {
+                tr!(
+                    format!("could not fetch github.com/{repo} ({branch}): {e}"),
+                    format!("kunde inte hämta github.com/{repo} ({branch}): {e}")
+                )
+            })?;
             unpack_strip(&data, &new)?;
         }
         let script = new.join(format!("{name}.py"));
-        let text = std::fs::read_to_string(&script).map_err(|_| format!("{name}.py saknas i det som hämtades"))?;
+        let text = std::fs::read_to_string(&script).map_err(|_| {
+            tr!(format!("{name}.py is missing from what was fetched"), format!("{name}.py saknas i det som hämtades"))
+        })?;
         // syntaxkontroll innan den fungerande versionen byts ut
         let ok = quiet(
             Command::new(&py[0])
@@ -541,7 +643,10 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
         .map(|s| s.success())
         .unwrap_or(false);
         if !ok {
-            return Err(format!("{name}.py är trasig, behåller den gamla versionen"));
+            return Err(tr!(
+                format!("{name}.py is broken, keeping the old version"),
+                format!("{name}.py är trasig, behåller den gamla versionen")
+            ));
         }
         Ok(parse_py_version(&text).unwrap_or_else(|| "?".into()))
     })();
@@ -558,18 +663,24 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
     let old = root.join(format!("{name}.old"));
     let _ = std::fs::remove_dir_all(&old);
     if dst.exists() {
-        std::fs::rename(&dst, &old).map_err(|e| format!("kunde inte flytta undan {}: {e}", dst.display()))?;
+        std::fs::rename(&dst, &old).map_err(|e| {
+            tr!(
+                format!("could not move {} aside: {e}", dst.display()),
+                format!("kunde inte flytta undan {}: {e}", dst.display())
+            )
+        })?;
     }
     if let Err(e) = std::fs::rename(&new, &dst) {
         let _ = std::fs::rename(&old, &dst);
-        return Err(format!("kunde inte flytta in {name}: {e}"));
+        return Err(tr!(format!("could not move {name} into place: {e}"), format!("kunde inte flytta in {name}: {e}")));
     }
     let _ = std::fs::remove_dir_all(&old);
 
     let shim = shim_path(name);
     let _ = std::fs::remove_file(&shim); // en ev. symlänk: skriv aldrig genom den
-    std::fs::write(&shim, shim_text(cfg!(windows), &py, &dst.join(format!("{name}.py"))))
-        .map_err(|e| format!("kunde inte skriva {}: {e}", shim.display()))?;
+    std::fs::write(&shim, shim_text(cfg!(windows), &py, &dst.join(format!("{name}.py")))).map_err(|e| {
+        tr!(format!("could not write {}: {e}", shim.display()), format!("kunde inte skriva {}: {e}", shim.display()))
+    })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -582,17 +693,27 @@ fn install_inner(name: &str, on_line: &mut dyn FnMut(String)) -> Result<String, 
 /// Kusinens egna data (t.ex. ~/.puppa, ~/.euppa, rapporter i ~/Documents) rörs inte.
 pub fn uninstall_cousin(name: &str) -> Result<(), String> {
     if cousin(name).is_none() {
-        return Err(format!("okänd kusin: {name}"));
+        return Err(tr!(format!("unknown tool: {name}"), format!("okänd kusin: {name}")));
     }
     let (dir, shim) = (cousin_dir(name), shim_path(name));
     if !dir.exists() && !shim.exists() {
-        return Err(format!("{name} är inte installerad i Ruppa"));
+        return Err(tr!(format!("{name} is not installed in Ruppa"), format!("{name} är inte installerad i Ruppa")));
     }
     if shim.exists() {
-        std::fs::remove_file(&shim).map_err(|e| format!("kunde inte ta bort {}: {e}", shim.display()))?;
+        std::fs::remove_file(&shim).map_err(|e| {
+            tr!(
+                format!("could not remove {}: {e}", shim.display()),
+                format!("kunde inte ta bort {}: {e}", shim.display())
+            )
+        })?;
     }
     if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|e| format!("kunde inte ta bort {}: {e}", dir.display()))?;
+        std::fs::remove_dir_all(&dir).map_err(|e| {
+            tr!(
+                format!("could not remove {}: {e}", dir.display()),
+                format!("kunde inte ta bort {}: {e}", dir.display())
+            )
+        })?;
     }
     Ok(())
 }
@@ -606,7 +727,9 @@ pub fn uninstall_script(yes: bool) -> Result<Command, String> {
         ("ruppa-uninstall.sh", include_str!("../uninstall.sh"))
     };
     let path = std::env::temp_dir().join(name);
-    std::fs::write(&path, text).map_err(|e| format!("kunde inte skriva {}: {e}", path.display()))?;
+    std::fs::write(&path, text).map_err(|e| {
+        tr!(format!("could not write {}: {e}", path.display()), format!("kunde inte skriva {}: {e}", path.display()))
+    })?;
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("powershell");
         c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]).arg(&path);
@@ -637,7 +760,13 @@ print(json.dumps({k:getattr(m,k,None) for k in sys.argv[2].split(',')},ensure_as
     }
     let py = find_python()?;
     let mut cmd = Command::new(&py[0]);
-    cmd.args(&py[1..]).arg("-c").arg(PY).arg(&script).arg(keys.join(",")).env("PYTHONIOENCODING", "utf-8");
+    cmd.args(&py[1..])
+        .arg("-c")
+        .arg(PY)
+        .arg(&script)
+        .arg(keys.join(","))
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("TRUPPA_LANG", lang());
     cmd.stdin(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     {
@@ -657,7 +786,8 @@ pub fn strip_ansi(s: &str) -> String {
 
 /// Öppna en kusin (en TUI) i ett riktigt terminalfönster.
 pub fn launch_in_terminal(name: &str) -> Result<(), String> {
-    let exe = cousin_exe(name).ok_or_else(|| format!("{name} är inte installerad"))?;
+    let exe = cousin_exe(name)
+        .ok_or_else(|| tr!(format!("{name} is not installed"), format!("{name} är inte installerad")))?;
     let exe_s = exe.to_string_lossy().to_string();
     #[cfg(target_os = "macos")]
     {
@@ -666,7 +796,7 @@ pub fn launch_in_terminal(name: &str) -> Result<(), String> {
             sh_quote(&exe_s).replace('\\', "\\\\").replace('"', "\\\"")
         );
         let ok = Command::new("osascript").arg("-e").arg(script).status().map(|s| s.success()).unwrap_or(false);
-        if ok { Ok(()) } else { Err("kunde inte öppna Terminal".into()) }
+        if ok { Ok(()) } else { Err(tr!("could not open Terminal", "kunde inte öppna Terminal").into()) }
     }
     #[cfg(windows)]
     {
@@ -698,7 +828,11 @@ pub fn launch_in_terminal(name: &str) -> Result<(), String> {
                 }
             }
         }
-        Err("hittade ingen terminal (x-terminal-emulator, gnome-terminal, konsole, xterm)".into())
+        Err(tr!(
+            "found no terminal (x-terminal-emulator, gnome-terminal, konsole, xterm)",
+            "hittade ingen terminal (x-terminal-emulator, gnome-terminal, konsole, xterm)"
+        )
+        .into())
     }
 }
 
@@ -710,7 +844,7 @@ pub fn join_names(names: &[&str]) -> String {
     match names.len() {
         0 => String::new(),
         1 => names[0].to_string(),
-        n => format!("{} och {}", names[..n - 1].join(", "), names[n - 1]),
+        n => format!("{}{}{}", names[..n - 1].join(", "), tr!(" and ", " och "), names[n - 1]),
     }
 }
 
@@ -800,7 +934,7 @@ mod tests {
     #[test]
     fn names_and_ansi() {
         assert_eq!(join_names(&["Uppa"]), "Uppa");
-        assert_eq!(join_names(&["Uppa", "Puppa", "Muppa"]), "Uppa, Puppa och Muppa");
+        assert_eq!(join_names(&["Uppa", "Puppa", "Muppa"]), "Uppa, Puppa and Muppa");
         assert_eq!(strip_ansi("\x1b[38;5;42m✔\x1b[0m klart"), "✔ klart");
     }
 

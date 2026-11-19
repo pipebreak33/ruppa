@@ -60,12 +60,12 @@ impl Session {
     ) -> Result<Self, String> {
         let script = core::cousin_dir(name).join(format!("{name}.py"));
         if !script.exists() {
-            return Err(format!("{name} är inte installerad"));
+            return Err(tr!(format!("{name} is not installed"), format!("{name} är inte installerad")));
         }
-        let py = core::find_python().ok_or("hittar ingen Python 3.8+")?;
+        let py = core::find_python().ok_or(tr!("found no Python 3.8+", "hittar ingen Python 3.8+"))?;
         let pair = native_pty_system()
             .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("kunde inte öppna en pty: {e}"))?;
+            .map_err(|e| tr!(format!("could not open a pty: {e}"), format!("kunde inte öppna en pty: {e}")))?;
         let mut cmd = CommandBuilder::new(&py[0]);
         cmd.args(&py[1..]);
         cmd.arg(&script);
@@ -78,7 +78,10 @@ impl Session {
         if std::env::var_os("LANG").is_none() && !cfg!(windows) {
             cmd.env("LANG", "en_US.UTF-8");
         }
-        let child = pair.slave.spawn_command(cmd).map_err(|e| format!("kunde inte starta {name}: {e}"))?;
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| tr!(format!("could not start {name}: {e}"), format!("kunde inte starta {name}: {e}")))?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
@@ -113,7 +116,10 @@ impl Session {
                 self.exit = Some(if st.success() {
                     "avslutades".into()
                 } else {
-                    format!("avslutades med kod {}", st.exit_code())
+                    tr!(
+                        format!("exited with code {}", st.exit_code()),
+                        format!("avslutades med kod {}", st.exit_code())
+                    )
                 });
                 false
             }
@@ -332,7 +338,7 @@ pub fn show(ui: &mut Ui, s: &mut Session, want_focus: bool) {
         painter.text(
             rect.right_top() + vec2(-12.0, 8.0),
             egui::Align2::RIGHT_TOP,
-            format!("↑ {} rader bakåt", s.scroll),
+            tr!(format!("↑ {} lines back", s.scroll), format!("↑ {} rader bakåt", s.scroll)),
             FontId::proportional(12.0),
             FG.gamma_multiply(0.6),
         );

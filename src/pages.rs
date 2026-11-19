@@ -44,9 +44,9 @@ impl Job {
     ) -> Result<Job, String> {
         let script = core::cousin_dir(name).join(format!("{name}.py"));
         if !script.exists() {
-            return Err(format!("{name} är inte installerad"));
+            return Err(tr!(format!("{name} is not installed"), format!("{name} är inte installerad")));
         }
-        let py = core::find_python().ok_or("hittar ingen Python 3.8+")?;
+        let py = core::find_python().ok_or(tr!("found no Python 3.8+", "hittar ingen Python 3.8+"))?;
         let lines = Arc::new(Mutex::new(Vec::new()));
         let done = Arc::new(Mutex::new(None));
         let (l2, d2, c2, name) = (lines.clone(), done.clone(), ctx.clone(), name.to_string());
@@ -95,6 +95,7 @@ fn run_one(
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("UPPA_NO_ANIM", "1")
+        .env("TRUPPA_LANG", crate::core::lang())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -107,7 +108,7 @@ fn run_one(
         Ok(c) => c,
         Err(e) => {
             if let Ok(mut l) = lines.lock() {
-                l.push(format!("✘ kunde inte starta: {e}"));
+                l.push(tr!(format!("✘ could not start: {e}"), format!("✘ kunde inte starta: {e}")));
             }
             return false;
         }
@@ -156,7 +157,10 @@ fn job_panel(ui: &mut Ui, job: &Option<Job>, open: &mut bool) {
             }
             ui.label(RichText::new(&job.title).color(TEXT));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if theme::ghost(ui, if *open { "Dölj detaljer" } else { "Visa detaljer" }) {
+                if theme::ghost(
+                    ui,
+                    if *open { tr!("Hide details", "Dölj detaljer") } else { tr!("Show details", "Visa detaljer") },
+                ) {
                     *open = !*open;
                 }
             });
@@ -267,20 +271,25 @@ pub fn parse_uppa_cache(text: &str) -> (Vec<UItem>, BTreeMap<String, (String, St
     (items, sources, v["time"].as_f64().unwrap_or(0.0))
 }
 
-const SOURCE_TITLES: [(&str, &str); 9] = [
-    ("self", "Uppa"),
-    ("brew", "Homebrew"),
-    ("winget", "winget"),
-    ("pwsh", "PowerShell-moduler"),
-    ("az", "az-tillägg"),
-    ("npm", "npm (Microsoft-paket)"),
-    ("dotnet", ".NET-verktyg"),
-    ("puppa", "Puppa"),
-    ("muppa", "Muppa"),
+/// (key, English, Swedish)
+const SOURCE_TITLES: [(&str, &str, &str); 9] = [
+    ("self", "Uppa", "Uppa"),
+    ("brew", "Homebrew", "Homebrew"),
+    ("winget", "winget", "winget"),
+    ("pwsh", "PowerShell modules", "PowerShell-moduler"),
+    ("az", "az extensions", "az-tillägg"),
+    ("npm", "npm (Microsoft packages)", "npm (Microsoft-paket)"),
+    ("dotnet", ".NET tools", ".NET-verktyg"),
+    ("puppa", "Puppa", "Puppa"),
+    ("muppa", "Muppa", "Muppa"),
 ];
 
 fn source_title(k: &str) -> String {
-    SOURCE_TITLES.iter().find(|(a, _)| *a == k).map(|(_, b)| b.to_string()).unwrap_or_else(|| k.to_string())
+    SOURCE_TITLES
+        .iter()
+        .find(|(a, _, _)| *a == k)
+        .map(|(_, en, sv)| tr!(*en, *sv).to_string())
+        .unwrap_or_else(|| k.to_string())
 }
 
 #[derive(Default)]
@@ -348,7 +357,11 @@ impl UppaPage {
             self.load();
             let age = now_secs() - self.time;
             if self.items.is_empty() || age > 6.0 * 3600.0 {
-                act = self.run(ctx, &["status", "--refresh", "--quiet"], "Kollar efter uppdateringar");
+                act = self.run(
+                    ctx,
+                    &["status", "--refresh", "--quiet"],
+                    tr!("Checking for updates", "Kollar efter uppdateringar"),
+                );
             }
         }
         if self.reload_after && self.job.as_ref().and_then(|j| j.finished()).is_some() {
@@ -370,37 +383,55 @@ impl UppaPage {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     let (big, col) = if self.items.is_empty() {
-                        ("Inte skannat än".to_string(), DIM)
+                        (tr!("Not scanned yet", "Inte skannat än").to_string(), DIM)
                     } else if n_outdated == 0 {
-                        ("Allt är uppdaterat".to_string(), GREEN)
+                        (tr!("Everything is up to date", "Allt är uppdaterat").to_string(), GREEN)
                     } else {
-                        (format!("{n_outdated} kan uppdateras"), YELLOW)
+                        (tr!(format!("{n_outdated} can be updated"), format!("{n_outdated} kan uppdateras")), YELLOW)
                     };
                     ui.label(RichText::new(big).size(22.0).color(col));
                     let sub = if self.time > 0.0 {
-                        format!(
-                            "{} verktyg och moduler · senast kollat {}",
-                            self.items.len(),
-                            ago(now_secs() - self.time)
+                        tr!(
+                            format!(
+                                "{} tools and modules · last checked {}",
+                                self.items.len(),
+                                ago(now_secs() - self.time)
+                            ),
+                            format!(
+                                "{} verktyg och moduler · senast kollat {}",
+                                self.items.len(),
+                                ago(now_secs() - self.time)
+                            )
                         )
                     } else {
-                        "Uppa kollar Homebrew/winget, PowerShell-moduler, az, npm och .NET".into()
+                        tr!(
+                            "Uppa checks Homebrew/winget, PowerShell modules, az, npm and .NET",
+                            "Uppa kollar Homebrew/winget, PowerShell-moduler, az, npm och .NET"
+                        )
+                        .into()
                     };
                     ui.label(RichText::new(sub).color(DIM).size(12.5));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let label = if chosen.is_empty() {
-                        "Uppdatera valda".to_string()
+                        tr!("Update selected", "Uppdatera valda").to_string()
                     } else {
-                        format!("Uppdatera valda ({})", chosen.len())
+                        tr!(
+                            format!("Update selected ({})", chosen.len()),
+                            format!("Uppdatera valda ({})", chosen.len())
+                        )
                     };
                     if theme::primary(ui, !busy && !chosen.is_empty(), &label, accent) {
                         let mut a: Vec<&str> = vec!["update", "-y"];
                         a.extend(chosen.iter().map(|s| s.as_str()));
                         act = self.run(ctx, &a, &format!("Uppdaterar {} st", chosen.len()));
                     }
-                    if theme::secondary(ui, !busy, "Kolla igen").clicked() {
-                        act = self.run(ctx, &["status", "--refresh", "--quiet"], "Kollar efter uppdateringar");
+                    if theme::secondary(ui, !busy, tr!("Check again", "Kolla igen")).clicked() {
+                        act = self.run(
+                            ctx,
+                            &["status", "--refresh", "--quiet"],
+                            tr!("Checking for updates", "Kollar efter uppdateringar"),
+                        );
                     }
                 });
             });
@@ -410,16 +441,24 @@ impl UppaPage {
 
         egui::ScrollArea::vertical().id_salt("uppa-lista").auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal(|ui| {
-                theme::overline(ui, "Det du har installerat");
+                theme::overline(ui, tr!("What you have installed", "Det du har installerat"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    theme::toggle(ui, &mut self.show_all, "Visa även det som är aktuellt");
+                    theme::toggle(
+                        ui,
+                        &mut self.show_all,
+                        tr!("Also show what is up to date", "Visa även det som är aktuellt"),
+                    );
                 });
             });
             if self.items.is_empty() && busy {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new());
                     ui.label(
-                        RichText::new("Uppa skannar dina verktyg. Det tar en halv minut första gången.").color(DIM),
+                        RichText::new(tr!(
+                            "Uppa is scanning your tools. It takes half a minute the first time.",
+                            "Uppa skannar dina verktyg. Det tar en halv minut första gången."
+                        ))
+                        .color(DIM),
                     );
                 });
             }
@@ -428,12 +467,16 @@ impl UppaPage {
                 if !self.show_all && !it.outdated() {
                     continue;
                 }
-                let order = SOURCE_TITLES.iter().position(|(a, _)| *a == it.source).unwrap_or(99);
+                let order = SOURCE_TITLES.iter().position(|(a, _, _)| *a == it.source).unwrap_or(99);
                 by_src.entry(order).or_insert_with(|| (it.source.clone(), Vec::new())).1.push(it.clone());
             }
             if by_src.is_empty() && !self.items.is_empty() {
                 theme::card(ui, |ui| {
-                    ui.label(RichText::new("✔  Inget att uppdatera just nu.").color(GREEN).size(15.0));
+                    ui.label(
+                        RichText::new(tr!("✔  Nothing to update right now.", "✔  Inget att uppdatera just nu."))
+                            .color(GREEN)
+                            .size(15.0),
+                    );
                 });
                 ui.add_space(12.0);
             }
@@ -471,7 +514,10 @@ impl UppaPage {
                                     ui.label(RichText::new(&it.current).monospace().color(DIM));
                                 }
                                 let note = if it.manual {
-                                    format!("uppdateras för hand. {}", it.note)
+                                    tr!(
+                                        format!("updated by hand. {}", it.note),
+                                        format!("uppdateras för hand. {}", it.note)
+                                    )
                                 } else {
                                     it.note.clone()
                                 };
@@ -483,50 +529,76 @@ impl UppaPage {
                 });
             }
             ui.columns(2, |c| {
-                section_sub(&mut c[0], "Grundpaket", "Installera det som behövs för ett visst jobb", |ui| {
-                    let profiles = if self.profiles.is_empty() {
-                        ["bas", "m365", "azure", "alla"]
-                            .iter()
-                            .map(|k| (k.to_string(), String::new(), vec![]))
-                            .collect()
-                    } else {
-                        self.profiles.clone()
-                    };
-                    ui.horizontal_wrapped(|ui| {
-                        for (k, desc, items) in &profiles {
-                            let label = profile_label(k);
-                            let mut hover = desc.clone();
-                            if !items.is_empty() {
-                                hover = format!("{hover}\n\n{}", items.join(", "));
+                section_sub(
+                    &mut c[0],
+                    tr!("Base packages", "Grundpaket"),
+                    tr!("Install what a particular job needs", "Installera det som behövs för ett visst jobb"),
+                    |ui| {
+                        let profiles = if self.profiles.is_empty() {
+                            ["bas", "m365", "azure", "alla"]
+                                .iter()
+                                .map(|k| (k.to_string(), String::new(), vec![]))
+                                .collect()
+                        } else {
+                            self.profiles.clone()
+                        };
+                        ui.horizontal_wrapped(|ui| {
+                            for (k, desc, items) in &profiles {
+                                let label = profile_label(k);
+                                let mut hover = desc.clone();
+                                if !items.is_empty() {
+                                    hover = format!("{hover}\n\n{}", items.join(", "));
+                                }
+                                let b = theme::secondary(ui, !busy, &label);
+                                let b = if hover.trim().is_empty() { b } else { b.on_hover_text(hover.trim()) };
+                                if b.clicked() {
+                                    act = self.run(
+                                        ctx,
+                                        &["install", "-y", k],
+                                        &tr!(
+                                            format!("Installing the base package {label}"),
+                                            format!("Installerar grundpaketet {label}")
+                                        ),
+                                    );
+                                }
                             }
-                            let b = theme::secondary(ui, !busy, &label);
-                            let b = if hover.trim().is_empty() { b } else { b.on_hover_text(hover.trim()) };
-                            if b.clicked() {
-                                act =
-                                    self.run(ctx, &["install", "-y", k], &format!("Installerar grundpaketet {label}"));
+                        });
+                    },
+                );
+                section_sub(
+                    &mut c[1],
+                    tr!("Tools", "Verktyg"),
+                    tr!("Sign-out, health check and clean-up", "Utloggning, hälsokoll och städning"),
+                    |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            if theme::secondary(ui, !busy, tr!("Sign out of everything", "Logga ut från allt"))
+                                .on_hover_text("Graph, Exchange, PnP, Az, az, m365 …")
+                                .clicked()
+                            {
+                                act = self.run(
+                                    ctx,
+                                    &["logout", "-y"],
+                                    tr!("Signing out of everything", "Loggar ut från allt"),
+                                );
                             }
-                        }
-                    });
-                });
-                section_sub(&mut c[1], "Verktyg", "Utloggning, hälsokoll och städning", |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        if theme::secondary(ui, !busy, "Logga ut från allt")
-                            .on_hover_text("Graph, Exchange, PnP, Az, az, m365 …")
-                            .clicked()
-                        {
-                            act = self.run(ctx, &["logout", "-y"], "Loggar ut från allt");
-                        }
-                        if theme::secondary(ui, !busy, "Hälsokoll").clicked() {
-                            act = self.run(ctx, &["doctor"], "Hälsokoll");
-                        }
-                        if theme::secondary(ui, !busy, "Städa gamla versioner").clicked() {
-                            act = self.run(ctx, &["clean", "-y"], "Städar gamla versioner");
-                        }
-                        if theme::secondary(ui, true, "Öppna i terminal").clicked() {
-                            act = Some(Action::Terminal(vec![]));
-                        }
-                    });
-                });
+                            if theme::secondary(ui, !busy, tr!("Health check", "Hälsokoll")).clicked() {
+                                act = self.run(ctx, &["doctor"], tr!("Health check", "Hälsokoll"));
+                            }
+                            if theme::secondary(ui, !busy, tr!("Clean up old versions", "Städa gamla versioner"))
+                                .clicked()
+                            {
+                                act = self.run(
+                                    ctx,
+                                    &["clean", "-y"],
+                                    tr!("Cleaning up old versions", "Städar gamla versioner"),
+                                );
+                            }
+                            if theme::secondary(ui, true, tr!("Open in terminal", "Öppna i terminal")).clicked() {
+                                act = Some(Action::Terminal(vec![]));
+                            }
+                        });
+                    },
+                );
             });
         });
         act
@@ -559,6 +631,8 @@ pub fn parse_profiles(v: &serde_json::Value) -> Vec<(String, String, Vec<String>
 fn profile_label(k: &str) -> String {
     match k {
         "m365" => "M365".into(),
+        "bas" => tr!("Base", "Bas").into(),
+        "alla" => tr!("All", "Alla").into(),
         _ => {
             let mut c = k.chars();
             c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
@@ -574,9 +648,9 @@ fn ago(s: f64) -> String {
     let s = s.max(0.0) as u64;
     match s {
         0..=59 => "nyss".into(),
-        60..=3599 => format!("för {} min sedan", s / 60),
-        3600..=86_399 => format!("för {} h sedan", s / 3600),
-        _ => format!("för {} dagar sedan", s / 86_400),
+        60..=3599 => tr!(format!("{} min ago", s / 60), format!("för {} min sedan", s / 60)),
+        3600..=86_399 => tr!(format!("{} h ago", s / 3600), format!("för {} h sedan", s / 3600)),
+        _ => tr!(format!("{} days ago", s / 86_400), format!("för {} dagar sedan", s / 86_400)),
     }
 }
 
@@ -632,11 +706,19 @@ pub fn parse_recipe(id: &str, text: &str) -> Option<Recipe> {
     }
     Some(Recipe {
         id: id.to_string(),
-        name: meta.get("namn").cloned().unwrap_or_else(|| id.to_string()),
+        name: (!core::is_sv())
+            .then(|| meta.get("name_en").cloned())
+            .flatten()
+            .or(meta.get("namn").cloned())
+            .unwrap_or_else(|| id.to_string()),
         category: meta.get("kategori").cloned().unwrap_or_else(|| "Övrigt".into()),
         kind: meta.get("typ").cloned().unwrap_or_else(|| "läs".into()),
         needs: meta.get("kraver").or(meta.get("krav")).cloned().unwrap_or_default(),
-        desc: meta.get("beskrivning").cloned().unwrap_or_default(),
+        desc: (!core::is_sv())
+            .then(|| meta.get("description_en").cloned())
+            .flatten()
+            .or(meta.get("beskrivning").cloned())
+            .unwrap_or_default(),
         params,
     })
 }
@@ -688,17 +770,72 @@ pub fn find_csv_path(lines: &[String]) -> Option<PathBuf> {
 }
 
 /// Områdena i Puppa: färg (släktens palett), ikonförkortning och vad de innehåller.
-pub const AREAS: [(&str, u8, &str, &str); 9] = [
-    ("SharePoint", 37, "SP", "Sajter, behörigheter, papperskorg och delning"),
-    ("OneDrive", 75, "OD", "Hitta, ge åtkomst och se de största"),
-    ("Exchange", 33, "EX", "Delade postlådor, åtkomst, kalender och spårning"),
-    ("Grupper", 177, "GR", "Medlemmar, lägg till och ta bort, grupper utan ägare"),
-    ("Användare", 49, "AN", "Info, licenser, gäster, MFA och spärra konton"),
-    ("Teams", 141, "TM", "Team, medlemmar och kanaler"),
-    ("Entra ID", 202, "ID", "Inloggningar, granskning, villkorlig åtkomst, enheter och roller"),
-    ("Excel", 71, "XL", "Exportera senaste resultatet"),
-    ("Lokalt", 220, "LO", "Moduler och session"),
+pub const AREAS: [(&str, u8, &str, &str, &str); 9] = [
+    (
+        "SharePoint",
+        37,
+        "SP",
+        "Sajter, behörigheter, papperskorg och delning",
+        "Sites, permissions, recycle bin and sharing",
+    ),
+    ("OneDrive", 75, "OD", "Hitta, ge åtkomst och se de största", "Find, give access and see the largest"),
+    (
+        "Exchange",
+        33,
+        "EX",
+        "Delade postlådor, åtkomst, kalender och spårning",
+        "Shared mailboxes, access, calendar and tracing",
+    ),
+    (
+        "Grupper",
+        177,
+        "GR",
+        "Medlemmar, lägg till och ta bort, grupper utan ägare",
+        "Members, add and remove, groups without owners",
+    ),
+    (
+        "Användare",
+        49,
+        "AN",
+        "Info, licenser, gäster, MFA och spärra konton",
+        "Info, licenses, guests, MFA and blocking accounts",
+    ),
+    ("Teams", 141, "TM", "Team, medlemmar och kanaler", "Teams, members and channels"),
+    (
+        "Entra ID",
+        202,
+        "ID",
+        "Inloggningar, granskning, villkorlig åtkomst, enheter och roller",
+        "Sign-ins, audit, Conditional Access, devices and roles",
+    ),
+    ("Excel", 71, "XL", "Exportera senaste resultatet", "Export the latest result"),
+    ("Lokalt", 220, "LO", "Moduler och session", "Modules and session"),
 ];
+
+/// English names for Puppa's areas and choices (Puppa's CAT_EN / CHOICE_EN), filled in when Puppa is loaded.
+/// (CAT_EN, CHOICE_EN)
+type PuppaEn = (HashMap<String, String>, HashMap<String, String>);
+static PUPPA_EN: std::sync::RwLock<Option<PuppaEn>> = std::sync::RwLock::new(None);
+
+/// An area's name in the chosen language (the Swedish name stays the key).
+pub fn cat_label(cat: &str) -> String {
+    if core::is_sv() {
+        return cat.to_string();
+    }
+    PUPPA_EN
+        .read()
+        .ok()
+        .and_then(|m| m.as_ref().and_then(|(c, _)| c.get(cat).cloned()))
+        .unwrap_or_else(|| cat.to_string())
+}
+
+/// A choice's label in the chosen language (Puppa is still sent the Swedish value).
+pub fn choice_label(v: &str) -> String {
+    if core::is_sv() {
+        return v.to_string();
+    }
+    PUPPA_EN.read().ok().and_then(|m| m.as_ref().and_then(|(_, c)| c.get(v).cloned())).unwrap_or_else(|| v.to_string())
+}
 
 /// Färg, ikon och beskrivning för ett område. Nya områden (som en uppdaterad Puppa har lagt till) får en färg ur
 /// släktens palett och de två första bokstäverna som ikon. `hints` kommer från Puppas CAT_HINTS.
@@ -716,7 +853,7 @@ pub fn area_info(cat: &str, hints: &HashMap<String, String>) -> (Color32, String
             let mut c = h.chars();
             c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
         })
-        .or_else(|| known.map(|a| a.3.to_string()))
+        .or_else(|| known.map(|a| tr!(a.4, a.3).to_string()))
         .unwrap_or_default();
     (color, icon, hint)
 }
@@ -767,6 +904,38 @@ impl PuppaPage {
             }
         }
         let mut v: Vec<Recipe> = rs.into_values().collect();
+        if !core::is_sv()
+            && let Some(en) = core::describe("puppa", &["RECIPES_EN", "CAT_EN", "CHOICE_EN"])
+        {
+            let map = |k: &str| -> HashMap<String, String> {
+                en[k]
+                    .as_object()
+                    .map(|o| o.iter().filter_map(|(a, b)| b.as_str().map(|b| (a.clone(), b.to_string()))).collect())
+                    .unwrap_or_default()
+            };
+            if let Ok(mut w) = PUPPA_EN.write() {
+                *w = Some((map("CAT_EN"), map("CHOICE_EN")));
+            }
+            for r in v.iter_mut() {
+                if let Some(x) = en["RECIPES_EN"][&r.id].as_array() {
+                    if let Some(n) = x.first().and_then(|n| n.as_str()) {
+                        r.name = n.to_string();
+                    }
+                    if let Some(d) = x.get(1).and_then(|d| d.as_str()) {
+                        r.desc = d.to_string();
+                    }
+                    if let Some(q) = x.get(2).and_then(|q| q.as_object()) {
+                        for p in r.params.iter_mut() {
+                            if let Some(l) =
+                                q.get(&p.name).or_else(|| q.get(p.name.trim_end_matches('?'))).and_then(|l| l.as_str())
+                            {
+                                p.label = l.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
         v.sort_by_key(|r| {
             (AREAS.iter().position(|a| a.0 == r.category).unwrap_or(50), r.category.clone(), r.writes(), r.name.clone())
         });
@@ -866,11 +1035,14 @@ impl PuppaPage {
     }
 
     fn script_badges(r: &Recipe) -> Vec<(String, Color32)> {
-        let mut b =
-            vec![if r.writes() { ("ändrar".to_string(), theme::WRITE) } else { ("läser".to_string(), GREEN) }];
+        let mut b = vec![if r.writes() {
+            (tr!("changes", "ändrar").to_string(), theme::WRITE)
+        } else {
+            (tr!("reads", "läser").to_string(), GREEN)
+        }];
         if !r.params.is_empty() {
             let n = r.params.len();
-            b.push((format!("{n} fält"), DIM));
+            b.push((tr!(format!("{n} field{}", if n == 1 { "" } else { "s" }), format!("{n} fält")), DIM));
         }
         b
     }
@@ -912,7 +1084,7 @@ impl PuppaPage {
         self.poll_lookup();
 
         let mut mode = usize::from(self.users_mode);
-        if theme::segmented(ui, &["Skript", "Användare"], &mut mode, accent) {
+        if theme::segmented(ui, &[tr!("Scripts", "Skript"), tr!("Users", "Användare")], &mut mode, accent) {
             self.users_mode = mode == 1;
             self.sel = None;
             self.run_for.clear();
@@ -928,7 +1100,11 @@ impl PuppaPage {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.label(RichText::new("TENANT").color(DIM).size(11.0).extra_letter_spacing(0.8));
-                    let shown = if self.active.is_empty() { "Ingen vald".to_string() } else { self.active.clone() };
+                    let shown = if self.active.is_empty() {
+                        tr!("None selected", "Ingen vald").to_string()
+                    } else {
+                        self.active.clone()
+                    };
                     let mut pick = None;
                     egui::ComboBox::from_id_salt("tenant")
                         .selected_text(RichText::new(shown).size(15.0))
@@ -940,28 +1116,50 @@ impl PuppaPage {
                                 }
                             }
                             if self.tenants.is_empty() {
-                                ui.label(RichText::new("Listan fylls på när du loggar in i ett skript.").color(DIM));
+                                ui.label(
+                                    RichText::new(tr!(
+                                        "The list fills up when you sign in from a script.",
+                                        "Listan fylls på när du loggar in i ett skript."
+                                    ))
+                                    .color(DIM),
+                                );
                             }
                         });
                     if let Some(t) = pick {
-                        act = self.start(ctx, vec!["tenant".into(), t.clone()], format!("Växlar till {t}"));
+                        act = self.start(
+                            ctx,
+                            vec!["tenant".into(), t.clone()],
+                            tr!(format!("Switching to {t}"), format!("Växlar till {t}")),
+                        );
                         self.active = t;
                     }
                 });
                 ui.add_space(12.0);
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("SÖK").color(DIM).size(11.0).extra_letter_spacing(0.8));
+                    ui.label(RichText::new(tr!("SEARCH", "SÖK")).color(DIM).size(11.0).extra_letter_spacing(0.8));
                     let w = (ui.available_width() - 250.0).max(180.0);
-                    field(ui, &mut self.search, &format!("Sök bland {} skript…", self.recipes.len()), w);
+                    field(
+                        ui,
+                        &mut self.search,
+                        &tr!(
+                            format!("Search {} scripts…", self.recipes.len()),
+                            format!("Sök bland {} skript…", self.recipes.len())
+                        ),
+                        w,
+                    );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-                    if theme::secondary(ui, true, "Terminal").on_hover_text("Puppa i den inbyggda terminalen").clicked()
+                    if theme::secondary(ui, true, "Terminal")
+                        .on_hover_text(tr!("Puppa in the built-in terminal", "Puppa i den inbyggda terminalen"))
+                        .clicked()
                     {
                         act = Some(Action::Terminal(vec![]));
                     }
-                    if theme::secondary(ui, !busy, "Logga ut").on_hover_text("PnP, Exchange, Teams och Graph").clicked()
+                    if theme::secondary(ui, !busy, tr!("Sign out", "Logga ut"))
+                        .on_hover_text(tr!("PnP, Exchange, Teams and Graph", "PnP, Exchange, Teams och Graph"))
+                        .clicked()
                     {
-                        act = self.start(ctx, vec!["logga-ut".into()], "Loggar ut".into());
+                        act = self.start(ctx, vec!["logga-ut".into()], tr!("Signing out", "Loggar ut").into());
                     }
                 });
             });
@@ -982,20 +1180,27 @@ impl PuppaPage {
                     let q = self.search.trim().to_lowercase();
                     if !q.is_empty() {
                         // fuzzy-sök: namnet väger tyngst, sedan område och beskrivning
-                        let hits: Vec<Recipe> =
-                            crate::fuzzy::rank(&q, &self.recipes, |r| format!("{} {} {}", r.name, r.category, r.desc))
-                                .into_iter()
-                                .cloned()
-                                .collect();
-                        theme::overline(ui, &format!("{} träffar", hits.len()));
+                        let hits: Vec<Recipe> = crate::fuzzy::rank(&q, &self.recipes, |r| {
+                            format!("{} {} {} {}", r.name, r.category, cat_label(&r.category), r.desc)
+                        })
+                        .into_iter()
+                        .cloned()
+                        .collect();
+                        theme::overline(ui, &tr!(format!("{} matches", hits.len()), format!("{} träffar", hits.len())));
                         if hits.is_empty() {
-                            ui.label(RichText::new("Inga skript matchar. Prova ett annat ord.").color(DIM));
+                            ui.label(
+                                RichText::new(tr!(
+                                    "No scripts match. Try another word.",
+                                    "Inga skript matchar. Prova ett annat ord."
+                                ))
+                                .color(DIM),
+                            );
                         }
                         self.script_grid(ui, &hits);
                     } else if let Some(cat) = self.area.clone() {
                         let (col, icon, hint) = self.area(&cat);
                         ui.horizontal(|ui| {
-                            if theme::ghost(ui, "← Alla områden") {
+                            if theme::ghost(ui, tr!("← All areas", "← Alla områden")) {
                                 self.area = None;
                             }
                         });
@@ -1010,7 +1215,7 @@ impl PuppaPage {
                                 col,
                             );
                             ui.vertical(|ui| {
-                                ui.label(RichText::new(&cat).size(22.0).color(TEXT));
+                                ui.label(RichText::new(cat_label(&cat)).size(22.0).color(TEXT));
                                 ui.label(RichText::new(hint).color(DIM));
                             });
                         });
@@ -1018,11 +1223,20 @@ impl PuppaPage {
                         let list: Vec<Recipe> = self.recipes.iter().filter(|r| r.category == cat).cloned().collect();
                         let (reads, writes): (Vec<Recipe>, Vec<Recipe>) = list.into_iter().partition(|r| !r.writes());
                         if !reads.is_empty() {
-                            theme::overline(ui, &format!("Visa och exportera · {}", reads.len()));
+                            theme::overline(
+                                ui,
+                                &tr!(
+                                    format!("View and export · {}", reads.len()),
+                                    format!("Visa och exportera · {}", reads.len())
+                                ),
+                            );
                             self.script_grid(ui, &reads);
                         }
                         if !writes.is_empty() {
-                            theme::overline(ui, &format!("Ändra · {}", writes.len()));
+                            theme::overline(
+                                ui,
+                                &tr!(format!("Change · {}", writes.len()), format!("Ändra · {}", writes.len())),
+                            );
                             self.script_grid(ui, &writes);
                         }
                     } else {
@@ -1033,10 +1247,10 @@ impl PuppaPage {
                             .cloned()
                             .collect();
                         if !recent.is_empty() {
-                            theme::overline(ui, "Senast använda");
+                            theme::overline(ui, tr!("Recently used", "Senast använda"));
                             self.script_grid(ui, &recent[..recent.len().min(3)]);
                         }
-                        theme::overline(ui, "Områden");
+                        theme::overline(ui, tr!("Areas", "Områden"));
                         // alla områden som skripten själva anger, i Puppas ordning; nya hamnar sist
                         let mut names: Vec<String> = Vec::new();
                         for r in &self.recipes {
@@ -1056,11 +1270,11 @@ impl PuppaPage {
                         let mut open = None;
                         theme::grid(ui, &cats, 230.0, 146.0, |ui, (cat, n, w), size| {
                             let (col, icon, hint) = area_info(cat, &hints);
-                            let mut badges = vec![(format!("{n} skript"), col)];
+                            let mut badges = vec![(tr!(format!("{n} scripts"), format!("{n} skript")), col)];
                             if *w > 0 {
-                                badges.push((format!("{w} ändrar"), theme::WRITE));
+                                badges.push((tr!(format!("{w} change"), format!("{w} ändrar")), theme::WRITE));
                             }
-                            if theme::tile(ui, size, col, &icon, cat, &hint, &badges, false).clicked() {
+                            if theme::tile(ui, size, col, &icon, &cat_label(cat), &hint, &badges, false).clicked() {
                                 open = Some(cat.clone());
                             }
                         });
@@ -1094,7 +1308,7 @@ impl PuppaPage {
     fn users_ui(&mut self, ui: &mut Ui, ctx: &egui::Context, busy: bool, accent: Color32) -> Option<Action> {
         let selected = self.sel.as_ref().and_then(|id| self.recipes.iter().find(|r| &r.id == id)).cloned();
         if let Some(r) = selected.filter(|_| !self.run_for.is_empty()) {
-            if theme::ghost(ui, "← Tillbaka till användarna") {
+            if theme::ghost(ui, tr!("← Back to the users", "← Tillbaka till användarna")) {
                 self.sel = None;
                 self.run_for.clear();
                 return None;
@@ -1164,9 +1378,9 @@ impl PuppaPage {
                     egui::FontId::proportional(14.0),
                     col,
                 );
-                ui.label(RichText::new(&r.category).color(DIM));
+                ui.label(RichText::new(cat_label(&r.category)).color(DIM));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if theme::ghost(ui, "Stäng") {
+                    if theme::ghost(ui, tr!("Close", "Stäng")) {
                         self.sel = None;
                     }
                 });
@@ -1174,10 +1388,14 @@ impl PuppaPage {
             ui.add_space(6.0);
             ui.label(RichText::new(&r.name).size(21.0).color(TEXT));
             ui.horizontal_wrapped(|ui| {
-                let (t, c) = if r.writes() { ("ändrar i tenanten", theme::WRITE) } else { ("läser bara", GREEN) };
+                let (t, c) = if r.writes() {
+                    (tr!("changes the tenant", "ändrar i tenanten"), theme::WRITE)
+                } else {
+                    (tr!("only reads", "läser bara"), GREEN)
+                };
                 theme::badge(ui, t, c);
                 if !r.needs.is_empty() {
-                    theme::badge(ui, &format!("kräver {}", r.needs), DIM);
+                    theme::badge(ui, &tr!(format!("needs {}", r.needs), format!("kräver {}", r.needs)), DIM);
                 }
             });
             if !r.desc.is_empty() {
@@ -1218,7 +1436,8 @@ impl PuppaPage {
                             *v = p.default.clone();
                         }
                         let mut cur = choices.iter().position(|c| c.eq_ignore_ascii_case(v)).unwrap_or(0);
-                        let opts: Vec<&str> = choices.iter().map(|c| c.as_str()).collect();
+                        let labels: Vec<String> = choices.iter().map(|c| choice_label(c)).collect();
+                        let opts: Vec<&str> = labels.iter().map(|c| c.as_str()).collect();
                         theme::segmented(ui, &opts, &mut cur, accent);
                         *v = choices[cur].clone();
                     } else if kind.is_empty() {
@@ -1227,13 +1446,23 @@ impl PuppaPage {
                         let searching = self.lookup.as_ref().is_some_and(|(n, _)| n == &p.name);
                         ui.horizontal(|ui| {
                             let v = self.values.entry(p.name.clone()).or_default();
-                            field(ui, v, "skriv en del av namnet och sök …", (ui.available_width() - 80.0).max(120.0));
+                            field(
+                                ui,
+                                v,
+                                tr!("type part of the name and search …", "skriv en del av namnet och sök …"),
+                                (ui.available_width() - 80.0).max(120.0),
+                            );
                             if searching {
                                 ui.add(egui::Spinner::new().color(accent));
-                            } else if theme::secondary(ui, !busy, "Sök").clicked() {
+                            } else if theme::secondary(ui, !busy, tr!("Search", "Sök")).clicked() {
                                 let q = v.rsplit(',').next().unwrap_or("").trim().to_string();
                                 let args = vec!["uppslag".into(), kind.clone(), q, "--json".into()];
-                                if let Ok(j) = Job::start("puppa", &args, format!("Söker {}", p.label), ctx) {
+                                if let Ok(j) = Job::start(
+                                    "puppa",
+                                    &args,
+                                    tr!(format!("Searching {}", p.label), format!("Söker {}", p.label)),
+                                    ctx,
+                                ) {
                                     self.lookup = Some((p.name.clone(), j));
                                 }
                             }
@@ -1249,7 +1478,14 @@ impl PuppaPage {
                                     .collect();
                             let shown = if shown.is_empty() { hits.iter().take(8).cloned().collect() } else { shown };
                             if hits.is_empty() {
-                                ui.label(RichText::new("Inga träffar (eller inte inloggad).").color(DIM).size(12.0));
+                                ui.label(
+                                    RichText::new(tr!(
+                                        "No matches (or not signed in).",
+                                        "Inga träffar (eller inte inloggad)."
+                                    ))
+                                    .color(DIM)
+                                    .size(12.0),
+                                );
                             }
                             for h in shown {
                                 let label = if h.detail.is_empty() {
@@ -1278,19 +1514,24 @@ impl PuppaPage {
             }
             if r.writes() {
                 ui.add_space(6.0);
-                theme::toggle(ui, &mut self.confirm, "Jag vet att det här ändrar i tenanten");
+                theme::toggle(
+                    ui,
+                    &mut self.confirm,
+                    tr!("I know this changes the tenant", "Jag vet att det här ändrar i tenanten"),
+                );
             }
             ui.add_space(12.0);
             ui.horizontal(|ui| {
                 let can = !busy && (!r.writes() || self.confirm);
                 let runs = self.runs_for(r);
                 let label = if runs.len() > 1 {
-                    format!("  Kör för {} användare  ", runs.len())
+                    tr!(format!("  Run for {} users  ", runs.len()), format!("  Kör för {} användare  ", runs.len()))
                 } else {
-                    "  Kör skript  ".into()
+                    tr!("  Run script  ", "  Kör skript  ").into()
                 };
                 if theme::primary(ui, can, &label, accent.gamma_multiply(0.85)) {
-                    match Job::start_many("puppa", runs, format!("Kör {}", r.name), ctx) {
+                    match Job::start_many("puppa", runs, tr!(format!("Run {}", r.name), format!("Kör {}", r.name)), ctx)
+                    {
                         Ok(j) => {
                             self.job = Some(j);
                             self.job_open = false;
@@ -1300,8 +1541,11 @@ impl PuppaPage {
                     }
                     self.result = None;
                 }
-                if theme::secondary(ui, true, "Kör i terminal")
-                    .on_hover_text("för skript som frågar något eller behöver en inloggning")
+                if theme::secondary(ui, true, tr!("Run in terminal", "Kör i terminal"))
+                    .on_hover_text(tr!(
+                        "for scripts that ask something or need a sign-in",
+                        "för skript som frågar något eller behöver en inloggning"
+                    ))
                     .clicked()
                 {
                     let mut a = self.run_args(r);
@@ -1317,7 +1561,7 @@ impl PuppaPage {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("Resultat · {} rader", rows.len().saturating_sub(1))).size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::secondary(ui, true, "Öppna filen").clicked() {
+                        if theme::secondary(ui, true, tr!("Open the file", "Öppna filen")).clicked() {
                             open_path(p);
                         }
                     });
@@ -1378,41 +1622,65 @@ impl Default for MuppaSchema {
         let f = |id, l, on| (opt(id, l, ""), on);
         MuppaSchema {
             folders: vec![
-                f("skrivbord", "Skrivbord", true),
-                f("dokument", "Dokument", true),
-                f("bilder", "Bilder", true),
-                f("hamtade", "Hämtade filer", true),
-                f("musik", "Musik", false),
-                f("videor", "Videor", false),
-                f("favoriter", "Favoriter", false),
-                f("kontakter", "Kontakter", false),
+                f("skrivbord", tr!("Desktop", "Skrivbord"), true),
+                f("dokument", tr!("Documents", "Dokument"), true),
+                f("bilder", tr!("Pictures", "Bilder"), true),
+                f("hamtade", tr!("Downloads", "Hämtade filer"), true),
+                f("musik", tr!("Music", "Musik"), false),
+                f("videor", tr!("Videos", "Videor"), false),
+                f("favoriter", tr!("Favorites", "Favoriter"), false),
+                f("kontakter", tr!("Contacts", "Kontakter"), false),
                 f("sticky", "Sticky Notes", false),
-                f("signaturer", "Outlook-signaturer", false),
+                f("signaturer", tr!("Outlook signatures", "Outlook-signaturer"), false),
             ],
             bitlocker: vec![
-                opt("pausa", "Spara nyckeln och pausa BitLocker", "rekommenderas"),
-                opt("stang-av", "Spara nyckeln och stäng av BitLocker", "dekrypterar hela disken"),
-                opt("spara", "Bara spara nyckeln", "rör inte skyddet"),
-                opt("ingen", "Rör inte BitLocker", ""),
+                opt(
+                    "pausa",
+                    tr!("Save the key and suspend BitLocker", "Spara nyckeln och pausa BitLocker"),
+                    tr!("recommended", "rekommenderas"),
+                ),
+                opt(
+                    "stang-av",
+                    tr!("Save the key and turn off BitLocker", "Spara nyckeln och stäng av BitLocker"),
+                    tr!("decrypts the whole disk", "dekrypterar hela disken"),
+                ),
+                opt(
+                    "spara",
+                    tr!("Only save the key", "Bara spara nyckeln"),
+                    tr!("leaves the protection alone", "rör inte skyddet"),
+                ),
+                opt("ingen", tr!("Leave BitLocker alone", "Rör inte BitLocker"), ""),
             ],
             domain: vec![
-                opt("bada", "Lämna domänen och anslut till Entra ID", ""),
-                opt("doman", "Bara lämna domänen", ""),
-                opt("entra", "Bara anslut till Entra ID", "datorn är redan utanför domänen"),
-                opt("inget", "Inget av dem", "bara kopiering och förberedelser"),
+                opt("bada", tr!("Leave the domain and join Entra ID", "Lämna domänen och anslut till Entra ID"), ""),
+                opt("doman", tr!("Only leave the domain", "Bara lämna domänen"), ""),
+                opt(
+                    "entra",
+                    tr!("Only join Entra ID", "Bara anslut till Entra ID"),
+                    tr!("the computer is already out of the domain", "datorn är redan utanför domänen"),
+                ),
+                opt(
+                    "inget",
+                    tr!("Neither", "Inget av dem"),
+                    tr!("only copying and preparation", "bara kopiering och förberedelser"),
+                ),
             ],
             cloud: vec![
-                opt("hoppa", "Hoppa över filer som bara finns i molnet", "rekommenderas"),
-                opt("kopiera", "Försök kopiera dem också", ""),
+                opt(
+                    "hoppa",
+                    tr!("Skip files that only exist in the cloud", "Hoppa över filer som bara finns i molnet"),
+                    tr!("recommended", "rekommenderas"),
+                ),
+                opt("kopiera", tr!("Try to copy them too", "Försök kopiera dem också"), ""),
             ],
             browsers: vec![opt("edge", "Microsoft Edge", ""), opt("chrome", "Google Chrome", "")],
             optional: vec![
-                opt("kund", "Kund", ""),
-                opt("ansvarig", "Ansvarig", ""),
-                opt("dator", "Datorns namn", ""),
+                opt("kund", tr!("Customer", "Kund"), ""),
+                opt("ansvarig", tr!("Responsible", "Ansvarig"), ""),
+                opt("dator", tr!("Computer name", "Datorns namn"), ""),
                 opt("upn", "E-post (UPN) i Entra ID", ""),
-                opt("tekniker", "Tekniker", ""),
-                opt("arende", "Ärendenummer", ""),
+                opt("tekniker", tr!("Technician", "Tekniker"), ""),
+                opt("arende", tr!("Ticket number", "Ärendenummer"), ""),
             ],
             defaults: serde_json::json!({"malmapp": "C:\\temp\\{användare}", "cloud": "hoppa", "browsers": ["edge"],
                 "bitlocker": "pausa", "admin": true, "admin_name": "lokaladmin", "domain": "bada"}),
@@ -1608,20 +1876,36 @@ impl MuppaPage {
         let accent = xterm(170);
         let schema = self.schema.clone();
         egui::ScrollArea::vertical().id_salt("muppa").auto_shrink([false, false]).show(ui, |ui| {
-            section_sub(ui, "Vem flyttas?", "Användaren vars profil flyttas från lokal AD till Entra ID", |ui| {
-                egui::Grid::new("vem").num_columns(2).spacing(vec2(14.0, 10.0)).show(ui, |ui| {
-                    ui.label(RichText::new("Användare").color(DIM));
-                    field(ui, &mut self.user, "t.ex. anna (profilmappen i C:\\Users)", 340.0);
-                    ui.end_row();
-                    ui.label(RichText::new("Målmapp").color(DIM));
-                    field(ui, &mut self.target, "", 340.0);
-                    ui.end_row();
-                });
-            });
             section_sub(
                 ui,
-                "Mappar som kopieras",
-                "Klicka för att välja. Omdirigerade OneDrive-mappar följs.",
+                tr!("Who is moving?", "Vem flyttas?"),
+                tr!(
+                    "The user whose profile moves from on-premises AD to Entra ID",
+                    "Användaren vars profil flyttas från lokal AD till Entra ID"
+                ),
+                |ui| {
+                    egui::Grid::new("vem").num_columns(2).spacing(vec2(14.0, 10.0)).show(ui, |ui| {
+                        ui.label(RichText::new(tr!("User", "Användare")).color(DIM));
+                        field(
+                            ui,
+                            &mut self.user,
+                            tr!("e.g. anna (the profile folder in C:\\Users)", "t.ex. anna (profilmappen i C:\\Users)"),
+                            340.0,
+                        );
+                        ui.end_row();
+                        ui.label(RichText::new(tr!("Target folder", "Målmapp")).color(DIM));
+                        field(ui, &mut self.target, "", 340.0);
+                        ui.end_row();
+                    });
+                },
+            );
+            section_sub(
+                ui,
+                tr!("Folders that are copied", "Mappar som kopieras"),
+                tr!(
+                    "Click to choose. Redirected OneDrive folders are followed.",
+                    "Klicka för att välja. Omdirigerade OneDrive-mappar följs."
+                ),
                 |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
@@ -1637,9 +1921,21 @@ impl MuppaPage {
                         }
                     });
                     ui.add_space(6.0);
-                    field(ui, &mut self.custom, "Egna sökvägar, separera med ;", f32::INFINITY);
+                    field(
+                        ui,
+                        &mut self.custom,
+                        tr!("Your own paths, separated by ;", "Egna sökvägar, separera med ;"),
+                        f32::INFINITY,
+                    );
                     ui.add_space(10.0);
-                    ui.label(RichText::new("Filer som bara finns i OneDrive-molnet").color(DIM).size(12.5));
+                    ui.label(
+                        RichText::new(tr!(
+                            "Files that only exist in the OneDrive cloud",
+                            "Filer som bara finns i OneDrive-molnet"
+                        ))
+                        .color(DIM)
+                        .size(12.5),
+                    );
                     Self::choices(ui, &schema.cloud, &mut self.cloud, accent);
                 },
             );
@@ -1647,29 +1943,46 @@ impl MuppaPage {
                 section(&mut cols[0], "BitLocker", |ui| {
                     Self::choices(ui, &schema.bitlocker, &mut self.bitlocker, accent)
                 });
-                section(&mut cols[1], "Domän och Entra ID", |ui| {
+                section(&mut cols[1], tr!("Domain and Entra ID", "Domän och Entra ID"), |ui| {
                     Self::choices(ui, &schema.domain, &mut self.domain, accent)
                 });
             });
             ui.columns(2, |cols| {
-                section_sub(&mut cols[0], "Webbläsare", "Bokmärken exporteras, lösenord sparar du själv", |ui| {
-                    for b in &schema.browsers {
-                        let mut on = self.browsers.contains(&b.id);
-                        if theme::toggle(ui, &mut on, &b.label) {
-                            if on {
-                                self.browsers.insert(b.id.clone());
-                            } else {
-                                self.browsers.remove(&b.id);
+                section_sub(
+                    &mut cols[0],
+                    tr!("Browsers", "Webbläsare"),
+                    tr!(
+                        "Bookmarks are exported, you save the passwords yourself",
+                        "Bokmärken exporteras, lösenord sparar du själv"
+                    ),
+                    |ui| {
+                        for b in &schema.browsers {
+                            let mut on = self.browsers.contains(&b.id);
+                            if theme::toggle(ui, &mut on, &b.label) {
+                                if on {
+                                    self.browsers.insert(b.id.clone());
+                                } else {
+                                    self.browsers.remove(&b.id);
+                                }
                             }
                         }
-                    }
-                });
-                section_sub(&mut cols[1], "Lokalt admin-konto", "Lösenordet frågas efter när skriptet körs", |ui| {
-                    theme::toggle(ui, &mut self.admin, "Skapa ett lokalt admin-konto");
-                    ui.add_enabled_ui(self.admin, |ui| field(ui, &mut self.admin_name, "kontonamn", 220.0));
-                });
+                    },
+                );
+                section_sub(
+                    &mut cols[1],
+                    tr!("Local admin account", "Lokalt admin-konto"),
+                    tr!("The password is asked for when the script runs", "Lösenordet frågas efter när skriptet körs"),
+                    |ui| {
+                        theme::toggle(
+                            ui,
+                            &mut self.admin,
+                            tr!("Create a local admin account", "Skapa ett lokalt admin-konto"),
+                        );
+                        ui.add_enabled_ui(self.admin, |ui| field(ui, &mut self.admin_name, "kontonamn", 220.0));
+                    },
+                );
             });
-            section_sub(ui, "Valfria uppgifter", "Hamnar i checklistan", |ui| {
+            section_sub(ui, tr!("Optional details", "Valfria uppgifter"), "Hamnar i checklistan", |ui| {
                 egui::Grid::new("valfritt").num_columns(4).spacing(vec2(14.0, 10.0)).show(ui, |ui| {
                     for (i, o) in schema.optional.iter().enumerate() {
                         ui.label(RichText::new(&o.label).color(DIM));
@@ -1683,9 +1996,21 @@ impl MuppaPage {
             theme::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     let ok = !self.user.trim().is_empty() && !busy;
-                    if theme::primary(ui, ok, "  Skapa skript och checklista  ", accent.gamma_multiply(0.85)) {
-                        match Job::start("muppa", &self.args(), format!("Skapar skript för {}", self.user.trim()), ctx)
-                        {
+                    if theme::primary(
+                        ui,
+                        ok,
+                        tr!("  Create script and checklist  ", "  Skapa skript och checklista  "),
+                        accent.gamma_multiply(0.85),
+                    ) {
+                        match Job::start(
+                            "muppa",
+                            &self.args(),
+                            tr!(
+                                format!("Creating a script for {}", self.user.trim()),
+                                format!("Skapar skript för {}", self.user.trim())
+                            ),
+                            ctx,
+                        ) {
                             Ok(j) => {
                                 self.job = Some(j);
                                 self.check_result = true;
@@ -1696,13 +2021,13 @@ impl MuppaPage {
                         }
                     }
                     if self.user.trim().is_empty() {
-                        ui.label(RichText::new("Fyll i användaren först.").color(DIM));
+                        ui.label(RichText::new(tr!("Fill in the user first.", "Fyll i användaren först.")).color(DIM));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if theme::secondary(ui, true, "Guiden i terminal").clicked() {
                             act = Some(Action::Terminal(vec!["ny".into()]));
                         }
-                        if theme::secondary(ui, true, "Öppna mappen").clicked() {
+                        if theme::secondary(ui, true, tr!("Open the folder", "Öppna mappen")).clicked() {
                             let d = muppa_out_dir();
                             let _ = std::fs::create_dir_all(&d);
                             open_path(&d);
@@ -1715,13 +2040,18 @@ impl MuppaPage {
             if let Some((script, list, text)) = &self.result {
                 section_sub(ui, "Klart!", &format!("{}  ·  {}", script.display(), list.display()), |ui| {
                     ui.horizontal(|ui| {
-                        if theme::primary(ui, true, "Visa skriptet", accent.gamma_multiply(0.85)) {
+                        if theme::primary(
+                            ui,
+                            true,
+                            tr!("Show the script", "Visa skriptet"),
+                            accent.gamma_multiply(0.85),
+                        ) {
                             open_path(script);
                         }
-                        if theme::secondary(ui, true, "Öppna checklistan").clicked() {
+                        if theme::secondary(ui, true, tr!("Open the checklist", "Öppna checklistan")).clicked() {
                             open_path(list);
                         }
-                        if theme::secondary(ui, true, "Öppna mappen").clicked() {
+                        if theme::secondary(ui, true, tr!("Open the folder", "Öppna mappen")).clicked() {
                             open_path(script.parent().unwrap_or(Path::new(".")));
                         }
                     });
@@ -1846,7 +2176,7 @@ mod tests {
         assert_eq!(p.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["bas", "azure", "ny"]);
         assert_eq!(p[0].2, vec!["pwsh", "az"]);
         assert_eq!(profile_label("m365"), "M365");
-        assert_eq!(profile_label("bas"), "Bas");
+        assert_eq!(profile_label("bas"), "Base");
         let mut hints = HashMap::new();
         hints.insert("Teams".to_string(), "team, kanaler".to_string());
         assert_eq!(area_info("Teams", &hints).2, "Team, kanaler");

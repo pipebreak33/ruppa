@@ -17,10 +17,14 @@ pub struct Pick {
 
 /// Tolka svaret från `puppa uppslag … --json` (sista raden som börjar med `{`).
 pub fn parse_lookup(lines: &[String]) -> Result<(String, Vec<Pick>), String> {
-    let line = lines.iter().rev().find(|l| l.trim_start().starts_with('{')).ok_or("inget svar från Puppa")?;
+    let line = lines
+        .iter()
+        .rev()
+        .find(|l| l.trim_start().starts_with('{'))
+        .ok_or(tr!("no answer from Puppa", "inget svar från Puppa"))?;
     let v: serde_json::Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
     if !v["ok"].as_bool().unwrap_or(false) {
-        return Err(v["error"].as_str().unwrap_or("uppslaget misslyckades").to_string());
+        return Err(v["error"].as_str().unwrap_or(tr!("the lookup failed", "uppslaget misslyckades")).to_string());
     }
     let items = v["items"]
         .as_array()
@@ -87,7 +91,7 @@ impl UsersView {
 
     fn fetch(&mut self, ctx: &egui::Context) {
         let args = vec!["uppslag".into(), "user".into(), "--alla".into(), "--json".into()];
-        match Job::start("puppa", &args, "Hämtar användarna", ctx) {
+        match Job::start("puppa", &args, tr!("Fetching the users", "Hämtar användarna"), ctx) {
             Ok(j) => {
                 self.job = Some(j);
                 self.error = None;
@@ -125,33 +129,51 @@ impl UsersView {
             theme::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new().color(accent));
-                    ui.label(RichText::new("Hämtar användarna i tenanten …").size(16.0));
+                    ui.label(
+                        RichText::new(tr!("Fetching the users in the tenant …", "Hämtar användarna i tenanten …"))
+                            .size(16.0),
+                    );
                 });
                 ui.label(
-                    RichText::new("Första gången kan Puppa behöva logga in i Microsoft Graph. Det sker i webbläsaren.")
-                        .color(DIM),
+                    RichText::new(tr!(
+                        "The first time Puppa may need to sign in to Microsoft Graph. That happens in the browser.",
+                        "Första gången kan Puppa behöva logga in i Microsoft Graph. Det sker i webbläsaren."
+                    ))
+                    .color(DIM),
                 );
             });
             return None;
         }
         if let Some(e) = self.error.clone() {
             theme::card(ui, |ui| {
-                ui.label(RichText::new("Kunde inte hämta användarna").size(18.0).color(RED));
+                ui.label(
+                    RichText::new(tr!("Could not fetch the users", "Kunde inte hämta användarna"))
+                        .size(18.0)
+                        .color(RED),
+                );
                 ui.label(RichText::new(e).color(DIM));
                 ui.label(
-                    RichText::new("Oftast behöver Puppa bara logga in i Graph. Gör det i terminalen och försök igen.")
-                        .color(DIM),
+                    RichText::new(tr!(
+                        "Usually Puppa just needs to sign in to Graph. Do that in the terminal and try again.",
+                        "Oftast behöver Puppa bara logga in i Graph. Gör det i terminalen och försök igen."
+                    ))
+                    .color(DIM),
                 );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if theme::primary(ui, true, "  Logga in i terminal  ", accent.gamma_multiply(0.85)) {
+                    if theme::primary(
+                        ui,
+                        true,
+                        tr!("  Sign in in the terminal  ", "  Logga in i terminal  "),
+                        accent.gamma_multiply(0.85),
+                    ) {
                         act = Some(UsersAction::Page(Action::Terminal(vec![
                             "uppslag".into(),
                             "user".into(),
                             "--alla".into(),
                         ])));
                     }
-                    if theme::secondary(ui, true, "Försök igen").clicked() {
+                    if theme::secondary(ui, true, tr!("Try again", "Försök igen")).clicked() {
                         self.reset();
                     }
                 });
@@ -168,12 +190,18 @@ impl UsersView {
                 ui.set_width(list_w);
                 theme::card(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("{} användare", self.items.len())).size(17.0));
+                        ui.label(
+                            RichText::new(tr!(
+                                format!("{} users", self.items.len()),
+                                format!("{} användare", self.items.len())
+                            ))
+                            .size(17.0),
+                        );
                         if !self.tenant.is_empty() {
                             theme::badge(ui, &self.tenant, accent);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if theme::ghost(ui, "Hämta igen") {
+                            if theme::ghost(ui, tr!("Fetch again", "Hämta igen")) {
                                 self.reset();
                             }
                         });
@@ -181,7 +209,10 @@ impl UsersView {
                     ui.add_space(4.0);
                     ui.add(
                         egui::TextEdit::singleline(&mut self.query)
-                            .hint_text("Sök namn, e-post, titel eller avdelning …")
+                            .hint_text(tr!(
+                                "Search name, email, title or department …",
+                                "Sök namn, e-post, titel eller avdelning …"
+                            ))
                             .desired_width(f32::INFINITY)
                             .margin(vec2(10.0, 8.0)),
                     );
@@ -192,12 +223,16 @@ impl UsersView {
                     .cloned()
                     .collect();
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("{} visas", hits.len())).color(DIM).size(12.5));
+                        ui.label(
+                            RichText::new(tr!(format!("{} shown", hits.len()), format!("{} visas", hits.len())))
+                                .color(DIM)
+                                .size(12.5),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !self.chosen.is_empty() && theme::ghost(ui, "Rensa valen") {
+                            if !self.chosen.is_empty() && theme::ghost(ui, tr!("Clear the selection", "Rensa valen")) {
                                 self.chosen.clear();
                             }
-                            if theme::ghost(ui, "Markera alla som visas") {
+                            if theme::ghost(ui, tr!("Select all shown", "Markera alla som visas")) {
                                 for p in &hits {
                                     if !self.chosen.contains(&p.value) {
                                         self.chosen.push(p.value.clone());
@@ -253,14 +288,25 @@ impl UsersView {
         let mut act = None;
         theme::card(ui, |ui| {
             if self.chosen.is_empty() {
-                ui.label(RichText::new("Välj användare").size(18.0));
+                ui.label(RichText::new(tr!("Pick users", "Välj användare")).size(18.0));
                 ui.label(
-                    RichText::new("Klicka på en eller flera i listan. Sedan visas vad du kan göra med dem.").color(DIM),
+                    RichText::new(tr!(
+                        "Click one or more in the list. Then you see what you can do with them.",
+                        "Klicka på en eller flera i listan. Sedan visas vad du kan göra med dem."
+                    ))
+                    .color(DIM),
                 );
                 return;
             }
             let n = self.chosen.len();
-            ui.label(RichText::new(if n == 1 { "1 vald".to_string() } else { format!("{n} valda") }).size(18.0));
+            ui.label(
+                RichText::new(if n == 1 {
+                    tr!("1 selected", "1 vald").to_string()
+                } else {
+                    tr!(format!("{n} selected"), format!("{n} valda"))
+                })
+                .size(18.0),
+            );
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
@@ -275,7 +321,14 @@ impl UsersView {
                     self.chosen.retain(|v| v != &r);
                 }
             });
-            ui.label(RichText::new("Klicka på en person för att ta bort den ur urvalet.").color(DIM).size(12.0));
+            ui.label(
+                RichText::new(tr!(
+                    "Click a person to remove them from the selection.",
+                    "Klicka på en person för att ta bort den ur urvalet."
+                ))
+                .color(DIM)
+                .size(12.0),
+            );
         });
         if self.chosen.is_empty() {
             return None;
@@ -284,7 +337,7 @@ impl UsersView {
         let mut acts: Vec<(&Recipe, bool)> =
             recipes.iter().filter_map(|r| user_param(r).map(|(_, many)| (r, many))).collect();
         acts.sort_by_key(|(r, _)| (r.writes(), r.category.clone(), r.name.clone()));
-        for (title, writes) in [("Visa", false), ("Ändra", true)] {
+        for (title, writes) in [(tr!("View", "Visa"), false), (tr!("Change", "Ändra"), true)] {
             let group: Vec<&(&Recipe, bool)> = acts.iter().filter(|(r, _)| r.writes() == writes).collect();
             if group.is_empty() {
                 continue;
@@ -294,9 +347,12 @@ impl UsersView {
             for (r, many) in group {
                 let (col, icon, _) = crate::pages::area_info(&r.category, &Default::default());
                 let note = if *many || self.chosen.len() == 1 {
-                    r.category.clone()
+                    crate::pages::cat_label(&r.category)
                 } else {
-                    format!("{} · körs en gång per person", r.category)
+                    tr!(
+                        format!("{} · runs once per person", crate::pages::cat_label(&r.category)),
+                        format!("{} · körs en gång per person", r.category)
+                    )
                 };
                 if action_row(ui, col, &icon, &r.name, &note, r.writes()) {
                     act = Some(UsersAction::Run(r.id.clone()));
@@ -343,7 +399,7 @@ fn user_row(ui: &mut Ui, p: &Pick, on: bool, accent: Color32, h: f32) -> bool {
     );
     job.wrap.max_rows = 1;
     let g = ui.ctx().fonts_mut(|f| f.layout_job(job));
-    let gone = p.detail.contains("avstängd");
+    let gone = p.detail.contains(tr!("disabled", "avstängd"));
     painter.galley(pos2(x, rect.center().y + 3.0), g, if gone { RED } else { DIM });
     resp.clicked()
 }
@@ -372,7 +428,7 @@ fn action_row(ui: &mut Ui, col: Color32, icon: &str, title: &str, note: &str, wr
         FontId::proportional(11.5),
         DIM,
     );
-    let (t, c) = if writes { ("ändrar", theme::WRITE) } else { ("läser", GREEN) };
+    let (t, c) = if writes { (tr!("changes", "ändrar"), theme::WRITE) } else { (tr!("reads", "läser"), GREEN) };
     painter.text(pos2(rect.right() - 14.0, rect.center().y), Align2::RIGHT_CENTER, t, FontId::proportional(12.0), c);
     resp.clicked()
 }

@@ -23,7 +23,21 @@ pub struct EParam {
     pub optional: bool,
     /// uppslag i tenanten, t.ex. "user+" (+ = flera värden)
     pub lookup: String,
+    /// the values Euppa is sent (Swedish) and the labels shown (in the chosen language)
     pub choices: Vec<String>,
+    pub choice_labels: Vec<String>,
+}
+
+impl EParam {
+    /// The label shown for a choice value.
+    fn choice_label<'a>(&'a self, v: &'a str) -> &'a str {
+        self.choices
+            .iter()
+            .position(|c| c == v)
+            .and_then(|i| self.choice_labels.get(i))
+            .map(|s| s.as_str())
+            .unwrap_or(v)
+    }
 }
 
 impl EParam {
@@ -58,7 +72,9 @@ impl EAction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EArea {
+    /// the key (Swedish, as the actions refer to it) and the name shown
     pub name: String,
+    pub label: String,
     pub icon: String,
     pub color: u8,
     pub desc: String,
@@ -76,6 +92,12 @@ fn s(v: &serde_json::Value) -> String {
     v.as_str().unwrap_or("").to_string()
 }
 
+/// The English field when English is chosen and Euppa has it, otherwise the Swedish one.
+fn loc(x: &serde_json::Value, en: &str, sv: &str) -> String {
+    let e = s(&x[en]);
+    if crate::core::is_sv() || e.is_empty() { s(&x[sv]) } else { e }
+}
+
 /// AREAS, ACTIONS och LOOKUPS (som core::describe ger dem) → områden, åtgärder och uppslagens namn.
 pub fn parse_schema(v: &serde_json::Value) -> (Vec<EArea>, Vec<EAction>, HashMap<String, String>) {
     let areas = v["AREAS"]
@@ -84,9 +106,10 @@ pub fn parse_schema(v: &serde_json::Value) -> (Vec<EArea>, Vec<EAction>, HashMap
             a.iter()
                 .map(|x| EArea {
                     name: s(&x["namn"]),
+                    label: loc(x, "name", "namn"),
                     icon: s(&x["ikon"]),
                     color: x["farg"].as_u64().unwrap_or(ACCENT as u64) as u8,
-                    desc: s(&x["beskrivning"]),
+                    desc: loc(x, "desc", "beskrivning"),
                 })
                 .collect()
         })
@@ -97,22 +120,27 @@ pub fn parse_schema(v: &serde_json::Value) -> (Vec<EArea>, Vec<EAction>, HashMap
             a.iter()
                 .map(|x| EAction {
                     id: s(&x["id"]),
-                    name: s(&x["namn"]),
+                    name: loc(x, "name", "namn"),
                     area: s(&x["omrade"]),
                     kind: s(&x["typ"]),
                     scopes: x["scopes"].as_array().map(|l| l.iter().map(s).collect()).unwrap_or_default(),
-                    desc: s(&x["beskrivning"]),
+                    desc: loc(x, "desc", "beskrivning"),
                     params: x["params"]
                         .as_array()
                         .map(|l| {
                             l.iter()
                                 .map(|p| EParam {
                                     name: s(&p["namn"]),
-                                    question: s(&p["fraga"]),
+                                    question: loc(p, "question", "fraga"),
                                     default: s(&p["standard"]),
                                     optional: p["valfri"].as_bool().unwrap_or(false),
                                     lookup: s(&p["uppslag"]),
                                     choices: p["val"].as_array().map(|c| c.iter().map(s).collect()).unwrap_or_default(),
+                                    choice_labels: if crate::core::is_sv() { &p["val"] } else { &p["choices"] }
+                                        .as_array()
+                                        .or(p["val"].as_array())
+                                        .map(|c| c.iter().map(s).collect())
+                                        .unwrap_or_default(),
                                 })
                                 .collect()
                         })
@@ -292,6 +320,11 @@ impl EuppaPage {
         self.loaded = false;
     }
 
+    /// An area's name in the chosen language.
+    fn area_label(&self, name: &str) -> String {
+        self.areas.iter().find(|a| a.name == name).map(|a| a.label.clone()).unwrap_or_else(|| name.to_string())
+    }
+
     fn area(&self, name: &str) -> (Color32, String, String) {
         match self.areas.iter().find(|a| a.name == name) {
             Some(a) => (xterm(a.color), a.icon.clone(), a.desc.clone()),
@@ -327,7 +360,7 @@ impl EuppaPage {
 
     fn fetch_users(&mut self, ctx: &egui::Context) -> Option<Action> {
         let args = vec!["uppslag".into(), "user".into(), "--alla".into(), "--json".into()];
-        match Job::start("euppa", &args, "Hämtar användarna", ctx) {
+        match Job::start("euppa", &args, tr!("Fetching the users", "Hämtar användarna"), ctx) {
             Ok(j) => {
                 self.fetch = Some(Fetch::Users(j));
                 self.fetch_error.clear();
@@ -343,7 +376,7 @@ impl EuppaPage {
             args.push(q.trim().to_string());
         }
         args.push("--json".into());
-        match Job::start("euppa", &args, format!("Söker {}", p.kind()), ctx) {
+        match Job::start("euppa", &args, tr!(format!("Searching {}", p.kind()), format!("Söker {}", p.kind())), ctx) {
             Ok(j) => {
                 self.fetch = Some(Fetch::Lookup(p.name.clone(), j));
                 self.fetch_error.clear();
@@ -428,7 +461,13 @@ impl EuppaPage {
                         .map(|v| s(&v["error"]))
                         .filter(|e| !e.is_empty())
                         .or_else(|| text.iter().rev().find(|l| l.contains('✘')).cloned())
-                        .unwrap_or_else(|| "Det gick inte. Är du inloggad? (Logga in uppe till höger.)".into());
+                        .unwrap_or_else(|| {
+                            tr!(
+                                "That didn't work. Are you signed in? (Sign in at the top right.)",
+                                "Det gick inte. Är du inloggad? (Logga in uppe till höger.)"
+                            )
+                            .into()
+                        });
                 }
             }
         }
@@ -446,8 +485,14 @@ impl EuppaPage {
 
         if self.actions.is_empty() {
             theme::card(ui, |ui| {
-                ui.label(RichText::new("Hittar inga åtgärder i Euppa.").size(16.0));
-                ui.label(RichText::new("Uppdatera Euppa uppe till höger, eller öppna den i terminalen.").color(DIM));
+                ui.label(RichText::new(tr!("Found no actions in Euppa.", "Hittar inga åtgärder i Euppa.")).size(16.0));
+                ui.label(
+                    RichText::new(tr!(
+                        "Update Euppa at the top right, or open it in the terminal.",
+                        "Uppdatera Euppa uppe till höger, eller öppna den i terminalen."
+                    ))
+                    .color(DIM),
+                );
                 if theme::secondary(ui, true, "Terminal").clicked() {
                     act = Some(Action::Terminal(vec![]));
                 }
@@ -460,7 +505,11 @@ impl EuppaPage {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.label(RichText::new("TENANT").color(DIM).size(11.0).extra_letter_spacing(0.8));
-                    let shown = if self.active.is_empty() { "Ingen vald".to_string() } else { self.active.clone() };
+                    let shown = if self.active.is_empty() {
+                        tr!("None selected", "Ingen vald").to_string()
+                    } else {
+                        self.active.clone()
+                    };
                     let mut pick = None;
                     egui::ComboBox::from_id_salt("euppa-tenant")
                         .selected_text(RichText::new(shown).size(15.0))
@@ -472,26 +521,36 @@ impl EuppaPage {
                                 }
                             }
                             if self.tenants.is_empty() {
-                                ui.label(RichText::new("Listan fylls på när du loggar in.").color(DIM));
+                                ui.label(
+                                    RichText::new(tr!(
+                                        "The list fills up when you sign in.",
+                                        "Listan fylls på när du loggar in."
+                                    ))
+                                    .color(DIM),
+                                );
                             }
                         });
                     if let Some(t) = pick {
-                        act = self.start(ctx, vec!["tenant".into(), t.clone()], format!("Växlar till {t}"));
+                        act = self.start(
+                            ctx,
+                            vec!["tenant".into(), t.clone()],
+                            tr!(format!("Switching to {t}"), format!("Växlar till {t}")),
+                        );
                         self.active = t;
                         self.users.clear();
                     }
                 });
                 ui.add_space(10.0);
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("VISA").color(DIM).size(11.0).extra_letter_spacing(0.8));
+                    ui.label(RichText::new(tr!("VIEW", "VISA")).color(DIM).size(11.0).extra_letter_spacing(0.8));
                     ui.horizontal(|ui| {
                         let mut u = self.view == View::Users;
-                        if theme::chip(ui, &mut u, "Användare", accent) {
+                        if theme::chip(ui, &mut u, tr!("Users", "Användare"), accent) {
                             self.view = View::Users;
                             self.sel = None;
                         }
                         let mut a = self.view == View::Areas;
-                        if theme::chip(ui, &mut a, "Områden", accent) {
+                        if theme::chip(ui, &mut a, tr!("Areas", "Områden"), accent) {
                             self.view = View::Areas;
                             self.sel = None;
                         }
@@ -499,42 +558,68 @@ impl EuppaPage {
                 });
                 ui.add_space(10.0);
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("SÖK").color(DIM).size(11.0).extra_letter_spacing(0.8));
+                    ui.label(RichText::new(tr!("SEARCH", "SÖK")).color(DIM).size(11.0).extra_letter_spacing(0.8));
                     let w = (ui.available_width() - 330.0).max(160.0);
                     ui.add(
                         egui::TextEdit::singleline(&mut self.search)
-                            .hint_text(format!("Sök bland {} åtgärder…", self.actions.len()))
+                            .hint_text(tr!(
+                                format!("Search {} actions…", self.actions.len()),
+                                format!("Sök bland {} åtgärder…", self.actions.len())
+                            ))
                             .desired_width(w)
                             .margin(vec2(10.0, 8.0)),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-                    if theme::secondary(ui, true, "Terminal").on_hover_text("Euppa i den inbyggda terminalen").clicked()
+                    if theme::secondary(ui, true, "Terminal")
+                        .on_hover_text(tr!("Euppa in the built-in terminal", "Euppa i den inbyggda terminalen"))
+                        .clicked()
                     {
                         act = Some(Action::Terminal(vec![]));
                     }
-                    if theme::secondary(ui, !busy, "Logga ut").on_hover_text("Disconnect-MgGraph").clicked() {
-                        act = self.start(ctx, vec!["logga-ut".into()], "Loggar ut".into());
+                    if theme::secondary(ui, !busy, tr!("Sign out", "Logga ut"))
+                        .on_hover_text("Disconnect-MgGraph")
+                        .clicked()
+                    {
+                        act = self.start(ctx, vec!["logga-ut".into()], tr!("Signing out", "Loggar ut").into());
                         self.users.clear();
                     }
-                    if theme::primary(ui, !busy, "Logga in", accent.gamma_multiply(0.85)) {
-                        act = self.start(ctx, vec!["logga-in".into()], "Loggar in i Microsoft Graph".into());
+                    if theme::primary(ui, !busy, tr!("Sign in", "Logga in"), accent.gamma_multiply(0.85)) {
+                        act = self.start(
+                            ctx,
+                            vec!["logga-in".into()],
+                            tr!("Signing in to Microsoft Graph", "Loggar in i Microsoft Graph").into(),
+                        );
                     }
                 });
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let mut keep = self.keep;
-                if theme::toggle(ui, &mut keep, "Kom ihåg inloggningen mellan körningar") {
+                if theme::toggle(
+                    ui,
+                    &mut keep,
+                    tr!("Remember the sign-in between runs", "Kom ihåg inloggningen mellan körningar"),
+                ) {
                     self.keep = keep;
                     let v = if keep { "på" } else { "av" };
-                    act = self.start(ctx, vec!["kom-ihåg".into(), v.into()], format!("Kom ihåg inloggningar: {v}"));
+                    act = self.start(
+                        ctx,
+                        vec!["kom-ihåg".into(), v.into()],
+                        tr!(format!("Remember sign-ins: {v}"), format!("Kom ihåg inloggningar: {v}")),
+                    );
                 }
                 ui.label(
                     RichText::new(if self.keep {
-                        "Inloggningen sparas i nyckelringen, du loggar in en gång."
+                        tr!(
+                            "The sign-in is kept in the keychain, you sign in once.",
+                            "Inloggningen sparas i nyckelringen, du loggar in en gång."
+                        )
                     } else {
-                        "Av: varje körning loggar in på nytt (ingen nyckelringsfråga på macOS)."
+                        tr!(
+                            "Off: every run signs in again (no keychain prompt on macOS).",
+                            "Av: varje körning loggar in på nytt (ingen nyckelringsfråga på macOS)."
+                        )
                     })
                     .color(DIM)
                     .size(12.0),
@@ -558,12 +643,23 @@ impl EuppaPage {
                         let hits: Vec<EAction> = self
                             .actions
                             .iter()
-                            .filter(|a| matches(&q, &format!("{} {} {} {}", a.name, a.area, a.desc, a.id)))
+                            .filter(|a| {
+                                matches(
+                                    &q,
+                                    &format!("{} {} {} {} {}", a.name, a.area, self.area_label(&a.area), a.desc, a.id),
+                                )
+                            })
                             .cloned()
                             .collect();
-                        theme::overline(ui, &format!("{} träffar", hits.len()));
+                        theme::overline(ui, &tr!(format!("{} matches", hits.len()), format!("{} träffar", hits.len())));
                         if hits.is_empty() {
-                            ui.label(RichText::new("Inga åtgärder matchar. Prova ett annat ord.").color(DIM));
+                            ui.label(
+                                RichText::new(tr!(
+                                    "No actions match. Try another word.",
+                                    "Inga åtgärder matchar. Prova ett annat ord."
+                                ))
+                                .color(DIM),
+                            );
                         }
                         self.action_grid(ui, &hits);
                     } else if self.view == View::Users {
@@ -594,15 +690,15 @@ impl EuppaPage {
 
     fn badges(a: &EAction) -> Vec<(String, Color32)> {
         let mut b = vec![if a.writes() {
-            ("ändrar".to_string(), theme::WRITE)
+            (tr!("changes", "ändrar").to_string(), theme::WRITE)
         } else if a.kind.starts_with("lok") {
             ("lokal".to_string(), DIM)
         } else {
-            ("läser".to_string(), GREEN)
+            (tr!("reads", "läser").to_string(), GREEN)
         }];
         let n = a.params.iter().filter(|p| a.user_param() != Some(p)).count();
         if n > 0 {
-            b.push((format!("{n} fält"), DIM));
+            b.push((tr!(format!("{n} field{}", if n == 1 { "" } else { "s" }), format!("{n} fält")), DIM));
         }
         b
     }
@@ -630,7 +726,7 @@ impl EuppaPage {
     fn areas_view(&mut self, ui: &mut Ui) {
         if let Some(name) = self.area.clone() {
             let (col, icon, hint) = self.area(&name);
-            if theme::ghost(ui, "← Alla områden") {
+            if theme::ghost(ui, tr!("← All areas", "← Alla områden")) {
                 self.area = None;
                 return;
             }
@@ -645,7 +741,7 @@ impl EuppaPage {
                     col,
                 );
                 ui.vertical(|ui| {
-                    ui.label(RichText::new(&name).size(22.0).color(TEXT));
+                    ui.label(RichText::new(self.area_label(&name)).size(22.0).color(TEXT));
                     ui.label(RichText::new(hint).color(DIM));
                 });
             });
@@ -653,16 +749,19 @@ impl EuppaPage {
             let list: Vec<EAction> = self.actions.iter().filter(|a| a.area == name).cloned().collect();
             let (reads, writes): (Vec<EAction>, Vec<EAction>) = list.into_iter().partition(|a| !a.writes());
             if !reads.is_empty() {
-                theme::overline(ui, &format!("Visa och exportera · {}", reads.len()));
+                theme::overline(
+                    ui,
+                    &tr!(format!("View and export · {}", reads.len()), format!("Visa och exportera · {}", reads.len())),
+                );
                 self.action_grid(ui, &reads);
             }
             if !writes.is_empty() {
-                theme::overline(ui, &format!("Ändra · {}", writes.len()));
+                theme::overline(ui, &tr!(format!("Change · {}", writes.len()), format!("Ändra · {}", writes.len())));
                 self.action_grid(ui, &writes);
             }
             return;
         }
-        theme::overline(ui, "Områden");
+        theme::overline(ui, tr!("Areas", "Områden"));
         let cats: Vec<(EArea, usize, usize)> = self
             .areas
             .iter()
@@ -675,11 +774,11 @@ impl EuppaPage {
             .collect();
         let mut open = None;
         theme::grid(ui, &cats, 230.0, 146.0, |ui, (a, n, w), size| {
-            let mut b = vec![(format!("{n} åtgärder"), xterm(a.color))];
+            let mut b = vec![(tr!(format!("{n} actions"), format!("{n} åtgärder")), xterm(a.color))];
             if *w > 0 {
-                b.push((format!("{w} ändrar"), theme::WRITE));
+                b.push((tr!(format!("{w} change"), format!("{w} ändrar")), theme::WRITE));
             }
-            if theme::tile(ui, size, xterm(a.color), &a.icon, &a.name, &a.desc, &b, false).clicked() {
+            if theme::tile(ui, size, xterm(a.color), &a.icon, &a.label, &a.desc, &b, false).clicked() {
                 open = Some(a.name.clone());
             }
         });
@@ -696,17 +795,27 @@ impl EuppaPage {
         theme::card(ui, |ui| {
             ui.horizontal(|ui| {
                 let title = if self.users.is_empty() {
-                    "Användare".to_string()
+                    tr!("Users", "Användare").to_string()
                 } else {
-                    format!("Användare i {} · {}", self.users_tenant, self.users.len())
+                    tr!(
+                        format!("Users in {} · {}", self.users_tenant, self.users.len()),
+                        format!("Användare i {} · {}", self.users_tenant, self.users.len())
+                    )
                 };
                 ui.label(RichText::new(title).size(16.0).color(TEXT));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if fetching_users {
                         ui.add(egui::Spinner::new().color(accent));
-                        ui.label(RichText::new("Hämtar … (loggar in vid behov)").color(DIM));
+                        ui.label(
+                            RichText::new(tr!("Fetching … (signs in if needed)", "Hämtar … (loggar in vid behov)"))
+                                .color(DIM),
+                        );
                     } else {
-                        let label = if self.users.is_empty() { "Hämta användare" } else { "Hämta igen" };
+                        let label = if self.users.is_empty() {
+                            tr!("Fetch users", "Hämta användare")
+                        } else {
+                            tr!("Fetch again", "Hämta igen")
+                        };
                         if theme::primary(ui, !fetching, label, accent.gamma_multiply(0.85)) {
                             act = self.fetch_users(ctx);
                         }
@@ -718,10 +827,12 @@ impl EuppaPage {
             }
             if self.users.is_empty() {
                 ui.label(
-                    RichText::new(
+                    RichText::new(tr!(
+                        "Fetch the users in the tenant, tick one or more and choose what should happen to them: \
+                             add to a group, assign a license, block, reset MFA …",
                         "Hämta användarna i tenanten, kryssa en eller flera och välj vad som ska hända med dem: \
-                         lägga till i grupp, tilldela licens, spärra, återställa MFA …",
-                    )
+                             lägga till i grupp, tilldela licens, spärra, återställa MFA …"
+                    ))
                     .color(DIM),
                 );
                 return;
@@ -730,7 +841,7 @@ impl EuppaPage {
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.user_filter)
-                        .hint_text("Filtrera på namn, e-post, titel …")
+                        .hint_text(tr!("Filter on name, email, title …", "Filtrera på namn, e-post, titel …"))
                         .desired_width((ui.available_width() - 280.0).max(160.0))
                         .margin(vec2(10.0, 8.0)),
                 );
@@ -741,7 +852,13 @@ impl EuppaPage {
                     .filter(|u| matches(&f, &format!("{} {} {}", u.name, u.value, u.detail)))
                     .map(|u| u.value.clone())
                     .collect();
-                if theme::secondary(ui, !vis.is_empty(), &format!("Kryssa alla ({})", vis.len())).clicked() {
+                if theme::secondary(
+                    ui,
+                    !vis.is_empty(),
+                    &tr!(format!("Tick all ({})", vis.len()), format!("Kryssa alla ({})", vis.len())),
+                )
+                .clicked()
+                {
                     for v in vis {
                         if !self.picked.contains(&v) {
                             self.picked.push(v);
@@ -791,15 +908,25 @@ impl EuppaPage {
             .take(3)
             .map(|v| self.users.iter().find(|u| &u.value == v).map(|u| u.name.clone()).unwrap_or(v.clone()))
             .collect();
-        let more = if self.picked.len() > 3 { format!(" och {} till", self.picked.len() - 3) } else { String::new() };
-        theme::overline(ui, &format!("Vad vill du göra med {}{more}?", names.join(", ")));
+        let more = if self.picked.len() > 3 {
+            tr!(format!(" and {} more", self.picked.len() - 3), format!(" och {} till", self.picked.len() - 3))
+        } else {
+            String::new()
+        };
+        theme::overline(
+            ui,
+            &tr!(
+                format!("What do you want to do with {}{more}?", names.join(", ")),
+                format!("Vad vill du göra med {}{more}?", names.join(", "))
+            ),
+        );
         let order: Vec<String> = self.areas.iter().map(|a| a.name.clone()).collect();
         let mut list: Vec<EAction> = self.actions.iter().filter(|a| a.user_param().is_some()).cloned().collect();
         list.sort_by_key(|a| (a.writes(), order.iter().position(|o| o == &a.area).unwrap_or(99)));
         let (reads, writes): (Vec<EAction>, Vec<EAction>) = list.into_iter().partition(|a| !a.writes());
-        theme::overline(ui, &format!("Visa · {}", reads.len()));
+        theme::overline(ui, &tr!(format!("View · {}", reads.len()), format!("Visa · {}", reads.len())));
         self.action_grid(ui, &reads);
-        theme::overline(ui, &format!("Ändra · {}", writes.len()));
+        theme::overline(ui, &tr!(format!("Change · {}", writes.len()), format!("Ändra · {}", writes.len())));
         self.action_grid(ui, &writes);
         act
     }
@@ -821,9 +948,9 @@ impl EuppaPage {
                     egui::FontId::proportional(14.0),
                     col,
                 );
-                ui.label(RichText::new(&a.area).color(DIM));
+                ui.label(RichText::new(self.area_label(&a.area)).color(DIM));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if theme::ghost(ui, "Stäng") {
+                    if theme::ghost(ui, tr!("Close", "Stäng")) {
                         self.sel = None;
                     }
                 });
@@ -831,7 +958,11 @@ impl EuppaPage {
             ui.add_space(6.0);
             ui.label(RichText::new(&a.name).size(21.0).color(TEXT));
             ui.horizontal_wrapped(|ui| {
-                let (t, c) = if a.writes() { ("ändrar i tenanten", theme::WRITE) } else { ("läser bara", GREEN) };
+                let (t, c) = if a.writes() {
+                    (tr!("changes the tenant", "ändrar i tenanten"), theme::WRITE)
+                } else {
+                    (tr!("only reads", "läser bara"), GREEN)
+                };
                 theme::badge(ui, t, c);
                 if !a.scopes.is_empty() {
                     theme::badge(ui, &a.scopes.join(" · "), DIM);
@@ -849,7 +980,14 @@ impl EuppaPage {
                 ui.label(RichText::new(label).color(DIM).size(12.5));
                 if users_mode && user_p.as_ref() == Some(p) {
                     ui.horizontal_wrapped(|ui| {
-                        theme::badge(ui, &format!("{} valda användare", self.picked.len()), accent);
+                        theme::badge(
+                            ui,
+                            &tr!(
+                                format!("{} selected users", self.picked.len()),
+                                format!("{} valda användare", self.picked.len())
+                            ),
+                            accent,
+                        );
                     });
                     ui.add_space(4.0);
                     continue;
@@ -862,18 +1000,18 @@ impl EuppaPage {
                     if p.choices.len() <= 4 {
                         ui.horizontal_wrapped(|ui| {
                             for ch in &p.choices {
-                                if ui.selectable_label(v == ch, ch).clicked() {
+                                if ui.selectable_label(v == ch, p.choice_label(ch)).clicked() {
                                     *v = ch.clone();
                                 }
                             }
                         });
                     } else {
                         egui::ComboBox::from_id_salt(format!("euppa-{}-{}", a.id, p.name))
-                            .selected_text(v.clone())
+                            .selected_text(p.choice_label(v).to_string())
                             .width(ui.available_width() - 8.0)
                             .show_ui(ui, |ui| {
                                 for ch in &p.choices {
-                                    if ui.selectable_label(v == ch, ch).clicked() {
+                                    if ui.selectable_label(v == ch, p.choice_label(ch)).clicked() {
                                         *v = ch.clone();
                                     }
                                 }
@@ -883,8 +1021,8 @@ impl EuppaPage {
                     let mut search = false;
                     ui.horizontal(|ui| {
                         let hint = match p.kind() {
-                            "user" => "namn eller e-post…",
-                            _ => "en del av namnet…",
+                            "user" => tr!("name or email…", "namn eller e-post…"),
+                            _ => tr!("part of the name…", "en del av namnet…"),
                         };
                         let r = ui.add(
                             egui::TextEdit::singleline(v)
@@ -895,7 +1033,7 @@ impl EuppaPage {
                         if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             search = true;
                         }
-                        if theme::secondary(ui, !fetching, "Sök").clicked() {
+                        if theme::secondary(ui, !fetching, tr!("Search", "Sök")).clicked() {
                             search = true;
                         }
                     });
@@ -909,7 +1047,13 @@ impl EuppaPage {
                     {
                         ui.horizontal(|ui| {
                             ui.add(egui::Spinner::new().color(accent));
-                            ui.label(RichText::new("Söker i tenanten … (loggar in vid behov)").color(DIM));
+                            ui.label(
+                                RichText::new(tr!(
+                                    "Searching the tenant … (signs in if needed)",
+                                    "Söker i tenanten … (loggar in vid behov)"
+                                ))
+                                .color(DIM),
+                            );
                         });
                     }
                     let mut chosen = None;
@@ -953,7 +1097,11 @@ impl EuppaPage {
                         self.hits = None;
                     }
                 } else {
-                    let hint = if p.default.contains('{') { "Euppa fyller i (tenantens domän)" } else { "" };
+                    let hint = if p.default.contains('{') {
+                        tr!("Euppa fills it in (the tenant's domain)", "Euppa fyller i (tenantens domän)")
+                    } else {
+                        ""
+                    };
                     ui.add(
                         egui::TextEdit::singleline(v)
                             .hint_text(hint)
@@ -976,30 +1124,47 @@ impl EuppaPage {
                 .collect();
             if a.writes() {
                 ui.add_space(6.0);
-                theme::toggle(ui, &mut self.confirm, "Jag vet att det här ändrar i tenanten");
+                theme::toggle(
+                    ui,
+                    &mut self.confirm,
+                    tr!("I know this changes the tenant", "Jag vet att det här ändrar i tenanten"),
+                );
             }
             ui.add_space(12.0);
             ui.horizontal(|ui| {
                 let can = !busy && missing.is_empty() && (!a.writes() || self.confirm);
                 let label = if users_mode && user_p.is_some() {
-                    format!("  Kör för {} användare  ", self.picked.len())
+                    tr!(
+                        format!("  Run for {} users  ", self.picked.len()),
+                        format!("  Kör för {} användare  ", self.picked.len())
+                    )
                 } else {
-                    "  Kör  ".to_string()
+                    tr!("  Run  ", "  Kör  ").to_string()
                 };
                 if theme::primary(ui, can, &label, accent.gamma_multiply(0.85)) {
                     let args = self.args_for(a, true);
-                    act = self.start(ctx, args, format!("Kör {}", a.name));
+                    act = self.start(ctx, args, tr!(format!("Run {}", a.name), format!("Kör {}", a.name)));
                     self.result = None;
                 }
-                if theme::secondary(ui, true, "Kör i terminal")
-                    .on_hover_text("med frågor och sökning i Euppas egen meny")
+                if theme::secondary(ui, true, tr!("Run in terminal", "Kör i terminal"))
+                    .on_hover_text(tr!(
+                        "with questions and search in Euppa's own menu",
+                        "med frågor och sökning i Euppas egen meny"
+                    ))
                     .clicked()
                 {
                     act = Some(Action::Terminal(self.args_for(a, false)));
                 }
             });
             if !missing.is_empty() {
-                ui.label(RichText::new(format!("Fyll i: {}", missing.join(", "))).color(YELLOW).size(12.5));
+                ui.label(
+                    RichText::new(tr!(
+                        format!("Fill in: {}", missing.join(", ")),
+                        format!("Fyll i: {}", missing.join(", "))
+                    ))
+                    .color(YELLOW)
+                    .size(12.5),
+                );
             }
         });
         ui.add_space(10.0);
@@ -1022,7 +1187,14 @@ impl EuppaPage {
                 }
                 ui.label(RichText::new(&job.title).color(TEXT));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if theme::ghost(ui, if self.job_open { "Dölj detaljer" } else { "Visa detaljer" }) {
+                    if theme::ghost(
+                        ui,
+                        if self.job_open {
+                            tr!("Hide details", "Dölj detaljer")
+                        } else {
+                            tr!("Show details", "Visa detaljer")
+                        },
+                    ) {
                         self.job_open = !self.job_open;
                     }
                 });
@@ -1075,18 +1247,22 @@ impl EuppaPage {
         theme::card(ui, |ui| {
             ui.horizontal(|ui| {
                 let head = if res.rows.is_empty() {
-                    if res.ok { "Klart – inget att visa".to_string() } else { "Det gick inte".to_string() }
+                    if res.ok {
+                        tr!("Done – nothing to show", "Klart – inget att visa").to_string()
+                    } else {
+                        tr!("It didn't work", "Det gick inte").to_string()
+                    }
                 } else {
                     format!("Resultat · {} rader", res.rows.len())
                 };
                 ui.label(RichText::new(head).size(16.0).color(if res.ok { TEXT } else { RED }));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if !res.rows.is_empty() {
-                        if theme::secondary(ui, true, "Spara som CSV").clicked() {
+                        if theme::secondary(ui, true, tr!("Save as CSV", "Spara som CSV")).clicked() {
                             save = true;
                         }
                         if let Some(p) = &self.saved
-                            && theme::ghost(ui, "Öppna")
+                            && theme::ghost(ui, tr!("Open", "Öppna"))
                         {
                             open_path(p);
                         }
@@ -1097,7 +1273,10 @@ impl EuppaPage {
                 ui.label(RichText::new(&res.error).color(RED));
             }
             if !res.ok && res.error.is_empty() {
-                ui.label(RichText::new("Felet står i detaljerna ovanför.").color(DIM));
+                ui.label(
+                    RichText::new(tr!("The error is in the details above.", "Felet står i detaljerna ovanför."))
+                        .color(DIM),
+                );
             }
             if let Some(p) = &self.saved {
                 ui.label(RichText::new(format!("Sparat i {}", p.display())).color(GREEN).size(12.5));
@@ -1134,7 +1313,10 @@ impl EuppaPage {
             let p = dir.join(format!("{tenant}-{}-{stamp}.csv", res.action));
             match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&p, to_csv(&res.cols, &res.rows))) {
                 Ok(()) => self.saved = Some(p),
-                Err(e) => self.saved = Some(PathBuf::from(format!("(kunde inte spara: {e})"))),
+                Err(e) => {
+                    self.saved =
+                        Some(PathBuf::from(tr!(format!("(could not save: {e})"), format!("(kunde inte spara: {e})"))))
+                }
             }
         }
     }

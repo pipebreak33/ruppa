@@ -59,16 +59,27 @@ pub fn sha256_hex(data: &[u8]) -> String {
 pub fn self_update(dry_run: bool, say: &mut dyn FnMut(String)) -> Result<Option<String>, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     if exe.components().any(|c| c.as_os_str() == "target") && exe.ancestors().any(|a| a.join("Cargo.toml").exists()) {
-        return Err("det här är en utvecklingskopia (cargo build). Uppdatera med git pull + cargo build.".into());
+        return Err(tr!(
+            "this is a development copy (cargo build). Update with git pull + cargo build.",
+            "det här är en utvecklingskopia (cargo build). Uppdatera med git pull + cargo build."
+        )
+        .into());
     }
-    let rel = latest_release().ok_or("kunde inte nå GitHub Releases (eller så finns ingen release än)")?;
+    let rel = latest_release().ok_or(tr!(
+        "could not reach GitHub Releases (or there is no release yet)",
+        "kunde inte nå GitHub Releases (eller så finns ingen release än)"
+    ))?;
     let tag = rel["tag_name"].as_str().unwrap_or_default();
     let latest = tag_version(tag);
     if !core::newer(&latest, VERSION) {
-        say(format!("Ruppa {VERSION} är redan senaste versionen."));
+        say(tr!(
+            format!("Ruppa {VERSION} is already the latest version."),
+            format!("Ruppa {VERSION} är redan senaste versionen.")
+        ));
         return Ok(None);
     }
-    let name = this_asset().ok_or("ingen färdig binär för den här plattformen")?;
+    let name = this_asset()
+        .ok_or(tr!("no ready-made binary for this platform", "ingen färdig binär för den här plattformen"))?;
     let assets = rel["assets"].as_array().cloned().unwrap_or_default();
     let url_of = |n: &str| {
         assets
@@ -76,22 +87,34 @@ pub fn self_update(dry_run: bool, say: &mut dyn FnMut(String)) -> Result<Option<
             .find(|a| a["name"].as_str() == Some(n))
             .and_then(|a| a["browser_download_url"].as_str().map(String::from))
     };
-    let bin_url = url_of(&name).ok_or_else(|| format!("releasen {tag} saknar {name}"))?;
-    let sums_url = url_of("SHA256SUMS").ok_or_else(|| format!("releasen {tag} saknar SHA256SUMS"))?;
+    let bin_url = url_of(&name)
+        .ok_or_else(|| tr!(format!("the release {tag} is missing {name}"), format!("releasen {tag} saknar {name}")))?;
+    let sums_url = url_of("SHA256SUMS").ok_or_else(|| {
+        tr!(format!("the release {tag} is missing SHA256SUMS"), format!("releasen {tag} saknar SHA256SUMS"))
+    })?;
     if dry_run {
-        say(format!("skulle hämta {bin_url} och byta ut {}", exe.display()));
+        say(tr!(
+            format!("would fetch {bin_url} and replace {}", exe.display()),
+            format!("skulle hämta {bin_url} och byta ut {}", exe.display())
+        ));
         return Ok(None);
     }
-    say(format!("Hämtar Ruppa {latest} ({name})"));
+    say(tr!(format!("Fetching Ruppa {latest} ({name})"), format!("Hämtar Ruppa {latest} ({name})")));
     let sums = String::from_utf8(core::http_get_bytes(&sums_url)?).map_err(|e| e.to_string())?;
-    let want = sum_for(&sums, &name).ok_or_else(|| format!("SHA256SUMS saknar {name}"))?;
+    let want = sum_for(&sums, &name)
+        .ok_or_else(|| tr!(format!("SHA256SUMS is missing {name}"), format!("SHA256SUMS saknar {name}")))?;
     let data = core::http_get_bytes(&bin_url)?;
     let got = sha256_hex(&data);
     if got != want {
-        return Err(format!("kontrollsumman stämmer inte ({got} ≠ {want}). Inget har ändrats."));
+        return Err(tr!(
+            format!("the checksum does not match ({got} ≠ {want}). Nothing has changed."),
+            format!("kontrollsumman stämmer inte ({got} ≠ {want}). Inget har ändrats.")
+        ));
     }
     let tmp = exe.with_extension("new");
-    std::fs::write(&tmp, &data).map_err(|e| format!("kunde inte skriva {}: {e}", tmp.display()))?;
+    std::fs::write(&tmp, &data).map_err(|e| {
+        tr!(format!("could not write {}: {e}", tmp.display()), format!("kunde inte skriva {}: {e}", tmp.display()))
+    })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

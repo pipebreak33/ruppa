@@ -12,10 +12,14 @@ $Dir = if ($env:RUPPA_HOME) { $env:RUPPA_HOME } else { Join-Path $HOME '.ruppa' 
 $Bin = Join-Path $Dir 'bin'
 $Lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Ruppa.lnk'
 
+# Language: TRUPPA_LANG, else ~/.truppa/config.json (shared by the whole troupe), else English
+$TL = $env:TRUPPA_LANG
+if (-not $TL) { try { $TL = (Get-Content -Raw -LiteralPath (Join-Path $HOME '.truppa/config.json') -ErrorAction Stop | ConvertFrom-Json).lang } catch { } }
+function T([string]$en, [string]$sv) { if ("$TL" -like 'sv*') { $sv } else { $en } }
 function Say($m) { Write-Host "  R› $m" -ForegroundColor DarkYellow }
 
 if ((Test-Path $Dir) -and -not (Test-Path (Join-Path $Bin 'ruppa.exe')) -and ((Split-Path $Dir -Leaf) -ne '.ruppa')) {
-    throw "$Dir ser inte ut som en Ruppa-mapp. Ingenting har tagits bort."
+    throw (T "$Dir does not look like a Ruppa folder. Nothing has been removed." "$Dir ser inte ut som en Ruppa-mapp. Ingenting har tagits bort.")
 }
 $user = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $user) { $user = '' }
@@ -25,14 +29,14 @@ $found = @()
 if (Test-Path $Dir) { $found += "    $Dir" }
 if (Test-Path $Lnk) { $found += "    $Lnk" }
 if ($inPath) { $found += "    $Bin i din PATH" }
-if (-not $found) { Say 'Ruppa är inte installerad här. Inget att ta bort.'; return }
+if (-not $found) { Say (T 'Ruppa is not installed here. Nothing to remove.' 'Ruppa är inte installerad här. Inget att ta bort.'); return }
 
-Write-Host "`n  Det här tas bort:"
+Write-Host (T "`n  This is removed:" "`n  Det här tas bort:")
 $found | ForEach-Object { Write-Host $_ }
-Write-Host "  Dina data i .puppa, .muppa, .euppa, .uppa och Dokument behålls.`n"
+Write-Host (T "  Your data in .puppa, .muppa, .euppa, .uppa and Documents is kept.`n" "  Dina data i .puppa, .muppa, .euppa, .uppa och Dokument behålls.`n")
 if ($env:RUPPA_YES -ne '1') {
-    $svar = Read-Host '  Avinstallera Ruppa? [j/N]'
-    if ($svar -notmatch '^(j|ja|y|yes)$') { Say 'Avbrutet. Ingenting har tagits bort.'; return }
+    $svar = Read-Host (T '  Uninstall Ruppa? [y/N]' '  Avinstallera Ruppa? [j/N]')
+    if ($svar -notmatch '^(j|ja|y|yes)$') { Say (T 'Cancelled. Nothing has been removed.' 'Avbrutet. Ingenting har tagits bort.'); return }
 }
 
 # stäng ett öppet Ruppa-fönster (exe-filen kan inte raderas medan den körs)
@@ -47,4 +51,4 @@ if ($inPath) {
 }
 
 $Clock.Stop()
-Write-Host "`n  ✔ Ruppa är avinstallerad ($([int]$Clock.Elapsed.TotalSeconds) s).`n" -ForegroundColor Green
+Write-Host (T "`n  ✔ Ruppa is uninstalled ($([int]$Clock.Elapsed.TotalSeconds) s).`n" "`n  ✔ Ruppa är avinstallerad ($([int]$Clock.Elapsed.TotalSeconds) s).`n") -ForegroundColor Green
